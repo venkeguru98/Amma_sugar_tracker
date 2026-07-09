@@ -30,6 +30,12 @@ services:
     plan: free
     buildCommand: "cd client && npm install && npm run build"
     publishDir: "client/dist"
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: diabetes-tracker-backend
+          property: host
     headers:
       - path: "/*"
         name: "Cache-Control"
