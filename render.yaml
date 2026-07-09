@@ -28,12 +28,12 @@ services:
     env: static
     plan: free
     buildCommand: "cd client && npm install && npm run build"
-    publishDir: "client/dist"
+    staticPublishPath: "client/dist"
     headers:
       - path: "/*"
         name: "Cache-Control"
         value: "public, max-age=0, must-revalidate"
     routes:
       - type: rewrite
-        path: "/*"
+        source: "/*"
         destination: "/index.html"
