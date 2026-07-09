@@ -23,15 +23,17 @@ services:
         value: 5000
 
   # 2. Frontend React 19 Static Site
-  - type: static
+  - type: web
     name: diabetes-tracker-frontend
+    env: static
+    plan: free
     buildCommand: "cd client && npm install && npm run build"
-    staticPublishPath: "client/dist"
+    publishDir: "client/dist"
     headers:
       - path: "/*"
         name: "Cache-Control"
         value: "public, max-age=0, must-revalidate"
     routes:
       - type: rewrite
-        source: "/*"
+        path: "/*"
         destination: "/index.html"
