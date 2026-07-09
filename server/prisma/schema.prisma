@@ -1,0 +1,185 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  password     String
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  readings       SugarReading[]
+  bpReadings     BPReading[]
+  weightReadings WeightReading[]
+  reminders      MedicineReminder[]
+  doctorNotes    DoctorNote[]
+  labReports     LabReport[]
+  prescriptions  Prescription[]
+
+  // Profile and health configuration
+  age          Int?
+  weight       Float?
+  height       Float?
+  diabetesType String?  @map("diabetes_type") // e.g. Type 1, Type 2, Pre-diabetes, Gestational
+  medicines    String?  // JSON stringified list of current medicines
+  targetMin    Float    @default(70) @map("target_min")
+  targetMax    Float    @default(140) @map("target_max")
+  themeSettings String? @map("theme_settings") // JSON settings for Dark Mode, High Contrast, Large Text etc.
+  monitoringPlan MonitoringPlan?
+
+  @@map("users")
+}
+
+model SugarReading {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  readingDate   String   @map("reading_date") // YYYY-MM-DD
+  readingTime   String   @map("reading_time") // HH:mm
+  readingType   String   @map("reading_type") // fasting, before_breakfast, after_breakfast, before_lunch, after_lunch, before_dinner, after_dinner, bedtime, random
+  bloodSugar    Float    @map("blood_sugar")
+  medicineTaken Boolean  @default(false) @map("medicine_taken")
+  medicineName  String?  @map("medicine_name")
+  insulinUnits  Float?   @map("insulin_units")
+  mealNotes     String?  @map("meal_notes")
+  symptoms      String?  // Comma-separated symptom keywords
+  remarks       String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([readingDate])
+  @@index([readingType])
+  @@index([createdAt])
+  @@map("sugar_readings")
+}
+
+model BPReading {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  readingDate String   @map("reading_date") // YYYY-MM-DD
+  readingTime String   @map("reading_time") // HH:mm
+  systolic    Int
+  diastolic   Int
+  pulse       Int?
+  remarks     String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("bp_readings")
+}
+
+model WeightReading {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  readingDate String   @map("reading_date") // YYYY-MM-DD
+  weight      Float // in kg
+  bmi         Float?
+  remarks     String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("weight_readings")
+}
+
+model MedicineReminder {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  medName   String   @map("med_name")
+  dosage    String   // e.g. "1 tablet", "10 units"
+  time      String   // HH:mm format
+  isActive  Boolean  @default(true) @map("is_active")
+  remarks   String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("medicine_reminders")
+}
+
+model DoctorNote {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  visitDate  String   @map("visit_date") // YYYY-MM-DD
+  doctorName String   @map("doctor_name")
+  specialty  String?
+  symptoms   String?
+  diagnosis  String?
+  treatment  String?
+  nextVisit  String?  @map("next_visit") // YYYY-MM-DD
+  notes      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("doctor_notes")
+}
+
+model LabReport {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  testDate    String   @map("test_date") // YYYY-MM-DD
+  reportName  String   @map("report_name")
+  labName     String?  @map("lab_name")
+  fileUrl     String   @map("file_url")
+  hba1c       Float?   // HbA1c percentage recorded in this test
+  remarks     String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("lab_reports")
+}
+
+model Prescription {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  doctorName String   @map("doctor_name")
+  issueDate  String   @map("issue_date") // YYYY-MM-DD
+  fileUrl    String   @map("file_url")
+  notes      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("prescriptions")
+}
+
+model MonitoringPlan {
+  id           String   @id @default(uuid())
+  userId       String   @unique @map("user_id")
+  frequency    String   // daily, alternate, custom_days
+  scheduleDays String   // comma-separated weekday indexes: "1,4" (Monday, Thursday)
+  reminderTime String   @default("08:00") @map("reminder_time")
+  readingTypes String   // comma-separated types: "fasting,before_lunch..."
+  startDate    String?  @map("start_date")
+  endDate      String?  @map("end_date")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("monitoring_plans")
+}
+

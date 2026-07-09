@@ -1,0 +1,40 @@
+services:
+  # 1. PostgreSQL Database Service on Render
+  - type: db
+    name: diabetes-tracker-db
+    databaseName: diabetes_tracker
+    user: tracker_admin
+    plan: free
+
+  # 2. Express Backend Web Service
+  - type: web
+    name: diabetes-tracker-backend
+    env: node
+    plan: free
+    buildCommand: "npm install && npm run db:postgres && cd server && npm install && npx prisma db push && npm run build"
+    startCommand: "cd server && npm start"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: diabetes-tracker-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PORT
+        value: 5000
+
+  # 3. Frontend React 19 Static Site
+  - type: web
+    name: diabetes-tracker-frontend
+    env: static
+    plan: free
+    buildCommand: "cd client && npm install && npm run build"
+    publishDir: "client/dist"
+    headers:
+      - path: "/*"
+        name: "Cache-Control"
+        value: "public, max-age=0, must-revalidate"
+    routes:
+      - type: rewrite
+        path: "/*"
+        destination: "/index.html"

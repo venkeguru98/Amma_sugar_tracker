@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', 'Geist', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'Noto Sans Tamil', 'Latha', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+  }
+
+  /* Accessibility Scaling (Large Text) */
+  html.accessibility-large-text {
+    font-size: 115%; /* Elevates base size to ~18.5px */
+  }
+
+  /* Elder Mode (Extreme Accessibility) */
+  html.accessibility-elder-mode {
+    font-size: 130%; /* Elevates base size to ~21px */
+  }
+
+  html.accessibility-elder-mode input,
+  html.accessibility-elder-mode select,
+  html.accessibility-elder-mode textarea,
+  html.accessibility-elder-mode button {
+    min-height: 52px !important;
+    font-size: 1.1rem !important;
+  }
+
+  html.accessibility-elder-mode .grid-cols-2,
+  html.accessibility-elder-mode .grid-cols-3,
+  html.accessibility-elder-mode .grid-cols-4,
+  html.accessibility-elder-mode .grid-cols-5 {
+    grid-template-columns: repeat(1, minmax(0, 1fr)) !important;
+  }
+
+  /* High Contrast overrides */
+  .high-contrast {
+    --tw-text-opacity: 1 !important;
+    --tw-bg-opacity: 1 !important;
+  }
+  
+  .high-contrast text-gray-500,
+  .high-contrast .text-gray-500,
+  .high-contrast .text-slate-500 {
+    color: #0f172a !important; /* Increase contrast of labels */
+    font-weight: 600 !important;
+  }
+
+  .high-contrast .border-slate-100,
+  .high-contrast .border-slate-200 {
+    border-color: #334155 !important;
+  }
+
+  .high-contrast .bg-emerald-50 {
+    background-color: #d1fae5 !important;
+    border: 2.5px solid #047857 !important;
+  }
+
+  .high-contrast .text-emerald-600 {
+    color: #047857 !important;
+    font-weight: 800 !important;
+  }
+
+  /* Custom glassmorphism classes */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+  }
+
+  .dark .glass-card {
+    background: rgba(30, 41, 59, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  /* Premium scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 4px;
+  }
+  .dark ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* Animations */
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
