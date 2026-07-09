@@ -38,6 +38,12 @@ export const Settings: React.FC = () => {
   const [medicines, setMedicines] = useState<string[]>([]);
   const [newMed, setNewMed] = useState('');
 
+  // WhatsApp & SMS Notification States
+  const [caregiverPhone, setCaregiverPhone] = useState('');
+  const [ammaPhone, setAmmaPhone] = useState('');
+  const [enableWhatsapp, setEnableWhatsapp] = useState(false);
+  const [enableSms, setEnableSms] = useState(false);
+
   // Monitoring Plan States
   const [monFrequency, setMonFrequency] = useState('custom_days');
   const [monScheduleDays, setMonScheduleDays] = useState<string[]>(['1', '4']); // default Mon, Thu
@@ -70,6 +76,13 @@ export const Settings: React.FC = () => {
       setTargetMin(user.targetMin.toString());
       setTargetMax(user.targetMax.toString());
       setMedicines(user.medicines || []);
+
+      // Load notification parameters from user's themeSettings meta
+      const meta = user.themeSettings || {};
+      setCaregiverPhone(meta.caregiverPhone || '');
+      setAmmaPhone(meta.ammaPhone || '');
+      setEnableWhatsapp(meta.enableWhatsapp || false);
+      setEnableSms(meta.enableSms || false);
     }
 
     // Fetch active monitoring plan
@@ -108,7 +121,14 @@ export const Settings: React.FC = () => {
         diabetesType,
         targetMin: parseFloat(targetMin),
         targetMax: parseFloat(targetMax),
-        medicines
+        medicines,
+        themeSettings: {
+          ...(user?.themeSettings || {}),
+          caregiverPhone,
+          ammaPhone,
+          enableWhatsapp,
+          enableSms
+        }
       });
       setSuccess(true);
     } catch (err: any) {
@@ -453,6 +473,65 @@ export const Settings: React.FC = () => {
                     <button type="button" onClick={() => removeMedicine(m)} className="text-rose-500 font-bold">×</button>
                   </span>
                 ))}
+              </div>
+            </div>
+
+            {/* 📲 WhatsApp & SMS Reminders Section */}
+            <div className="space-y-4 border-t pt-6">
+              <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                <span>📲</span>
+                <span>{isTamil ? "வாட்ஸ்அப் மற்றும் எஸ்எம்எஸ் நினைவூட்டல்கள்" : "WhatsApp & SMS Reminders"}</span>
+              </h3>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">{isTamil ? "அம்மாவின் தொலைபேசி எண்" : "Amma's Phone Number"}</label>
+                  <input 
+                    type="tel" 
+                    placeholder="e.g. +919876543210" 
+                    value={ammaPhone} 
+                    onChange={(e) => setAmmaPhone(e.target.value)} 
+                    className="w-full px-4 py-2.5 rounded-xl border dark:bg-slate-800 text-sm focus:outline-none" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1.5">{isTamil ? "பராமரிப்பாளர் தொலைபேசி எண்" : "Caregiver's Phone Number"}</label>
+                  <input 
+                    type="tel" 
+                    placeholder="e.g. +919876543211" 
+                    value={caregiverPhone} 
+                    onChange={(e) => setCaregiverPhone(e.target.value)} 
+                    className="w-full px-4 py-2.5 rounded-xl border dark:bg-slate-800 text-sm focus:outline-none" 
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                <label className="flex items-center gap-3 cursor-pointer p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-800/40">
+                  <input
+                    type="checkbox"
+                    checked={enableWhatsapp}
+                    onChange={(e) => setEnableWhatsapp(e.target.checked)}
+                    className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200 block">{isTamil ? "வாட்ஸ்அப் நினைவூட்டல்களை இயக்கு" : "Enable WhatsApp Reminders"}</span>
+                    <span className="text-[10px] text-slate-400 font-semibold">{isTamil ? "அம்மாவின் வாட்ஸ்அப்பிற்கு தானியங்கி செய்திகள் அனுப்பப்படும்" : "Sends automated reminders to Amma's WhatsApp"}</span>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 cursor-pointer p-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl border border-slate-100 dark:border-slate-800/40">
+                  <input
+                    type="checkbox"
+                    checked={enableSms}
+                    onChange={(e) => setEnableSms(e.target.checked)}
+                    className="w-4 h-4 text-emerald-600 rounded focus:ring-emerald-500"
+                  />
+                  <div>
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-200 block">{isTamil ? "எஸ்எம்எஸ் நினைவூட்டல்களை இயக்கு" : "Enable SMS Reminders"}</span>
+                    <span className="text-[10px] text-slate-400 font-semibold">{isTamil ? "சோதனை தவறும் போது பராமரிப்பாளருக்கு எஸ்எம்எஸ் எச்சரிக்கை" : "Sends SMS alert to Caregiver if reading is missed"}</span>
+                  </div>
+                </label>
               </div>
             </div>
 

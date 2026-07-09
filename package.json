@@ -15,7 +15,7 @@
     "db:generate": "cd server && npx prisma generate",
     "db:postgres": "node scripts/switch-db.js postgresql",
     "db:sqlite": "node scripts/switch-db.js sqlite",
-    "db:import-sqlite": "node scripts/import-to-postgres.js"
+    "db:import-sqlite": "node server/import-to-postgres.js"
   },
   "dependencies": {
     "concurrently": "^8.2.2"
