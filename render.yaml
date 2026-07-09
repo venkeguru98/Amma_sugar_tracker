@@ -1,12 +1,11 @@
-services:
-  # 1. PostgreSQL Database Service on Render
-  - type: db
-    name: diabetes-tracker-db
+databases:
+  - name: diabetes-tracker-db
     databaseName: diabetes_tracker
     user: tracker_admin
     plan: free
 
-  # 2. Express Backend Web Service
+services:
+  # 1. Express Backend Web Service
   - type: web
     name: diabetes-tracker-backend
     env: node
@@ -23,7 +22,7 @@ services:
       - key: PORT
         value: 5000
 
-  # 3. Frontend React 19 Static Site
+  # 2. Frontend React 19 Static Site
   - type: static
     name: diabetes-tracker-frontend
     buildCommand: "cd client && npm install && npm run build"
