@@ -34,5 +34,5 @@ services:
         value: "public, max-age=0, must-revalidate"
     routes:
       - type: rewrite
-        path: "/*"
+        source: "/*"
         destination: "/index.html"
