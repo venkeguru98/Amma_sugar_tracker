@@ -167,6 +167,7 @@ model Prescription {
 model MonitoringPlan {
   id           String   @id @default(uuid())
   userId       String   @unique @map("user_id")
+  adviser      String?  @default("doctor")
   frequency    String   // daily, alternate, custom_days
   scheduleDays String   // comma-separated weekday indexes: "1,4" (Monday, Thursday)
   reminderTime String   @default("08:00") @map("reminder_time")

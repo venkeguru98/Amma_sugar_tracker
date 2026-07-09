@@ -93,9 +93,9 @@ export const Settings: React.FC = () => {
         setMonScheduleDays(plan.scheduleDays.split(',').map((s: string) => s.trim()).filter(Boolean));
         setMonReminderTime(plan.reminderTime);
         setMonReadingTypes(plan.readingTypes.split(',').map((s: string) => s.trim()).filter(Boolean));
-        setMonStartDate(plan.startDate || '');
         setMonEndDate(plan.endDate || '');
         setMonIsActive(plan.isActive);
+        setMonCreator(plan.adviser || 'doctor');
 
         // Infer option
         if (plan.reminderTime === '08:00') setMonReminderOption('morning');
@@ -152,7 +152,8 @@ export const Settings: React.FC = () => {
         readingTypes: monReadingTypes.join(','),
         startDate: monStartDate || null,
         endDate: monEndDate || null,
-        isActive: monIsActive
+        isActive: monIsActive,
+        adviser: monCreator
       });
       setSuccess(true);
     } catch (err: any) {

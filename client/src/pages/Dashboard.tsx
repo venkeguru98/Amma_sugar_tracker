@@ -58,6 +58,8 @@ interface MonitoringProgress {
   completionPercent: number;
   nextScheduled: { date: string; dayEn: string; dayTa: string };
   adherence: AdherenceData;
+  reminderTime?: string;
+  isActive?: boolean;
 }
 
 interface SummaryData {
@@ -91,6 +93,7 @@ export const Dashboard: React.FC = () => {
   const [allReadings, setAllReadings] = useState<Reading[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [monProgress, setMonProgress] = useState<MonitoringProgress | null>(null);
+  const [isOverdue, setIsOverdue] = useState(false);
 
   // Story Averages
   const [todayVal, setTodayVal] = useState<number | null>(null);
@@ -106,6 +109,56 @@ export const Dashboard: React.FC = () => {
 
   // Selected view mode: 'amma' | 'caregiver'
   const familyView = localStorage.getItem('family_view') || 'amma';
+
+  // Request browser notification permission on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
+  }, []);
+
+  // Monitor time and trigger notifications / overdue warnings
+  useEffect(() => {
+    if (!monProgress || !monProgress.isScheduledToday || !monProgress.reminderTime) {
+      setIsOverdue(false);
+      return;
+    }
+
+    const evaluateReminder = () => {
+      const now = dayjs();
+      const [rHours, rMinutes] = monProgress.reminderTime!.split(':').map(Number);
+      const currentMinutes = now.hour() * 60 + now.minute();
+      const reminderMinutes = rHours * 60 + rMinutes;
+
+      const overdue = currentMinutes >= reminderMinutes;
+      setIsOverdue(overdue);
+
+      // Trigger notification if overdue and readings are still pending
+      const isPending = monProgress.completionPercent < 100;
+      const isTa = i18n.language.startsWith('ta');
+      if (overdue && isPending) {
+        const todayStr = now.format('YYYY-MM-DD');
+        const lastNotified = localStorage.getItem('last_notified_date');
+        if (lastNotified !== todayStr) {
+          if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+            new Notification(isTa ? "🔔 சர்க்கரை பரிசோதனைக்கான நேரம்" : "🔔 Time for your sugar test", {
+              body: isTa 
+                ? "அட்டவணைப்படுத்தப்பட்ட சர்க்கரை பரிசோதனை நிலுவையில் உள்ளது. தயவுசெய்து இப்போது பதிவு செய்யவும்." 
+                : "Please record today's scheduled sugar readings.",
+              icon: '/icon-512.jpg'
+            });
+            localStorage.setItem('last_notified_date', todayStr);
+          }
+        }
+      }
+    };
+
+    evaluateReminder();
+    const interval = setInterval(evaluateReminder, 30000); // Check every 30 seconds
+    return () => clearInterval(interval);
+  }, [monProgress, i18n.language]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -139,9 +192,11 @@ export const Dashboard: React.FC = () => {
         setFoodPlan(defaultPlan);
       }
 
-      // Fetch monitoring plan progress
+      // Fetch monitoring plan progress with timezone-safe clientDate query param
       try {
-        const progressRes = await axios.get('/api/extra/monitoring-plan/progress');
+        const progressRes = await axios.get('/api/extra/monitoring-plan/progress', {
+          params: { clientDate: dayjs().format('YYYY-MM-DD') }
+        });
         setMonProgress(progressRes.data);
       } catch (e) {
         console.error(e);
@@ -288,6 +343,16 @@ export const Dashboard: React.FC = () => {
       {familyView === 'amma' && (
         <div className="space-y-6">
           
+          {/* In-app reminder banner (visible when browser notifications are blocked/denied and tests are pending past reminderTime) */}
+          {isOverdue && monProgress && monProgress.completionPercent < 100 && (typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'granted') && (
+            <div className="p-4 bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900 rounded-3xl font-extrabold text-xs flex items-center gap-2 animate-pulse shadow-xs">
+              <span className="text-base">🔔</span>
+              <span>
+                {isTamil ? "சர்க்கரை பரிசோதனை நேரம்! தயவுசெய்து இன்று அட்டவணைப்படுத்தப்பட்ட சர்க்கரை அளவுகளைப் பதிவு செய்யவும்." : "Time for your sugar test. Please record today's scheduled sugar readings."}
+              </span>
+            </div>
+          )}
+
           {/* 🌸 Redesigned Amma View Health Companion Card */}
           <div className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-slate-900 dark:to-emerald-955/20 p-6 rounded-3xl border border-emerald-100/40 dark:border-slate-800 shadow-sm space-y-4">
             
@@ -312,12 +377,9 @@ export const Dashboard: React.FC = () => {
                   <h3 className="text-xs font-black text-slate-400 uppercase tracking-wider">
                     🩸 {isTamil ? "இன்றைய சர்க்கரை பரிசோதனை" : "TODAY'S SUGAR CHECK"}
                   </h3>
-                  <p className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
-                    <span>✅</span>
-                    <span>{isTamil ? "இன்று உங்களுக்கு சர்க்கரை பரிசோதனை அட்டவணை இல்லை." : "Today you don't have a scheduled sugar test."}</span>
-                  </p>
-                  <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-450 italic">
-                    {isTamil ? "🌼 இன்றைய நாளை நிம்மதியுடனும் மகிழ்ச்சியுடனும் கழியுங்கள்." : "🌼 Relax and enjoy your day."}
+                  <p className="text-sm font-bold text-slate-850 dark:text-white flex items-start gap-1.5">
+                    <span>🌼</span>
+                    <span>{isTamil ? "இன்று சர்க்கரை பரிசோதனை அட்டவணை இல்லை. நிம்மதியாகவும் மகிழ்ச்சியாகவும் இருங்கள்." : "No sugar test is scheduled today. Relax and enjoy your day."}</span>
                   </p>
                   
                   {monProgress.nextScheduled && monProgress.nextScheduled.date && (
@@ -346,10 +408,24 @@ export const Dashboard: React.FC = () => {
               {monProgress && monProgress.isScheduledToday && monProgress.completionPercent < 100 && (
                 <div className="space-y-3.5">
                   <h3 className="text-xs font-black text-rose-500 dark:text-rose-455 uppercase tracking-wider">
-                    🩸 {isTamil ? "இன்று சர்க்கரை பரிசோதனை நாள்" : "TODAY IS YOUR SUGAR TEST DAY"}
+                    🩸 {isTamil ? "இன்றைய சர்க்கரை பரிசோதனை" : "TODAY'S SUGAR CHECK"}
                   </h3>
                   
-                  <p className="text-xxs font-bold text-slate-400 uppercase">
+                  {isOverdue ? (
+                    <div className="p-3 bg-rose-50 dark:bg-rose-955/20 border border-rose-100 rounded-xl flex items-start gap-2">
+                      <span className="text-sm">⏰</span>
+                      <p className="text-xs font-bold text-rose-600 dark:text-rose-450">
+                        {isTamil ? "அட்டவணைப்படுத்தப்பட்ட சர்க்கரை பரிசோதனை நிலுவையில் உள்ளது. தயவுசெய்து இப்போது பதிவு செய்யவும்." : "Your scheduled sugar test is pending. Please record it now."}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm font-bold text-slate-800 dark:text-white flex items-start gap-1.5">
+                      <span>🩸</span>
+                      <span>{isTamil ? "இன்று உங்களுக்கு சர்க்கரை பரிசோதனை அட்டவணை உள்ளது. தயவுசெய்து படுக்கைக்கு முன் அவற்றை முடிக்கவும்." : "Today you have scheduled sugar tests. Please complete them before bedtime."}</span>
+                    </p>
+                  )}
+                  
+                  <p className="text-xxs font-bold text-slate-400 uppercase pt-1">
                     {isTamil ? "இவற்றை முடிக்கவும்:" : "Please complete these:"}
                   </p>
 
@@ -377,7 +453,7 @@ export const Dashboard: React.FC = () => {
 
                   <div className="border-t border-slate-50 dark:border-slate-800/80 pt-2 flex justify-between items-center text-xxs font-bold text-slate-500">
                     <span>{isTamil ? "முன்னேற்றம்:" : "Progress:"}</span>
-                    <span className="text-slate-800 dark:text-white">{monProgress.checkedCount} / {monProgress.totalCount} {isTamil ? "முடிந்தது" : "Completed"} ({monProgress.completionPercent}%)</span>
+                    <span className="text-slate-800 dark:text-white">{monProgress.checkedCount} / {monProgress.totalCount} {isTamil ? "முடிந்தது" : "Completed"}</span>
                   </div>
 
                   {/* Progress Bar */}
@@ -402,11 +478,14 @@ export const Dashboard: React.FC = () => {
               {monProgress && monProgress.isScheduledToday && monProgress.completionPercent === 100 && (
                 <div className="text-center space-y-2.5 py-1">
                   <span className="text-3xl block">🎉</span>
-                  <h3 className="text-sm font-heading font-black text-emerald-800 dark:text-emerald-450 uppercase tracking-wide">
+                  <h3 className="text-sm font-heading font-black text-emerald-805 dark:text-emerald-450 uppercase tracking-wide">
                     {isTamil ? "அருமை அம்மா ❤️" : "Great Job Amma ❤️"}
                   </h3>
-                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                    {isTamil ? "இன்றைய சர்க்கரை கண்காணிப்பு வெற்றிகரமாக முடிந்தது." : "Today's sugar monitoring is complete."}
+                  <p className="text-xs font-bold text-slate-700 dark:text-slate-350">
+                    {isTamil ? "அருமை! இன்றைய சர்க்கரை பரிசோதனை அட்டவணையை முடித்துவிட்டீர்கள்." : "Excellent! You completed today's monitoring schedule."}
+                  </p>
+                  <p className="text-xs font-extrabold text-emerald-600 dark:text-emerald-450 mt-1">
+                    {isTamil ? "🎉 இன்றைய சர்க்கரை கண்காணிப்பு வெற்றிகரமாக முடிந்தது. அருமையான வேலை!" : "🎉 Monitoring completed for today. Excellent work!"}
                   </p>
                   
                   {monProgress.nextScheduled && monProgress.nextScheduled.date && (
@@ -419,10 +498,6 @@ export const Dashboard: React.FC = () => {
                       </span>
                     </div>
                   )}
-
-                  <p className="text-xxs font-black text-emerald-650 italic">
-                    {isTamil ? "இன்றைய நாளை மகிழ்ச்சியாகக் கழியுங்கள் 🌸" : "Enjoy your day 🌸"}
-                  </p>
                 </div>
               )}
 

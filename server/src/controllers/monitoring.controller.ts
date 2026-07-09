@@ -4,7 +4,9 @@ import { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import dayjs from 'dayjs';
 
 // Default configuration fallbacks
+// Default configuration fallbacks
 const DEFAULT_PLAN = {
+  adviser: 'doctor',
   frequency: 'custom_days',
   scheduleDays: '1,4', // Mon, Thu
   reminderTime: '08:00',
@@ -37,11 +39,12 @@ export const savePlan = async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const { frequency, scheduleDays, reminderTime, readingTypes, startDate, endDate, isActive } = req.body;
+    const { frequency, scheduleDays, reminderTime, readingTypes, startDate, endDate, isActive, adviser } = req.body;
 
     const plan = await prisma.monitoringPlan.upsert({
       where: { userId: req.user.id },
       update: {
+        adviser: adviser ? String(adviser) : undefined,
         frequency: String(frequency),
         scheduleDays: String(scheduleDays),
         reminderTime: String(reminderTime),
@@ -52,6 +55,7 @@ export const savePlan = async (req: AuthenticatedRequest, res: Response) => {
       },
       create: {
         userId: req.user.id,
+        adviser: adviser ? String(adviser) : "doctor",
         frequency: String(frequency),
         scheduleDays: String(scheduleDays),
         reminderTime: String(reminderTime),
@@ -84,6 +88,12 @@ const isDateScheduled = (date: dayjs.Dayjs, plan: any): boolean => {
     const diff = Math.abs(date.diff(base, 'day'));
     return diff % 2 === 0;
   }
+  if (plan.frequency === 'weekly') {
+    // Check if diff is a multiple of 7
+    const base = plan.startDate ? dayjs(plan.startDate) : dayjs('2026-01-01');
+    const diff = Math.abs(date.diff(base, 'day'));
+    return diff % 7 === 0;
+  }
   if (plan.frequency === 'custom_days') {
     const days = plan.scheduleDays.split(',').map((d: string) => d.trim());
     return days.includes(String(date.day()));
@@ -103,8 +113,9 @@ export const getProgress = async (req: AuthenticatedRequest, res: Response) => {
       plan = DEFAULT_PLAN as any;
     }
 
-    const today = dayjs();
-    const todayStr = today.format('YYYY-MM-DD');
+    // Capture the client's current local date to prevent timezone discrepancy
+    const todayStr = req.query.clientDate ? String(req.query.clientDate) : dayjs().format('YYYY-MM-DD');
+    const today = dayjs(todayStr);
 
     // 1. Is today scheduled?
     const isScheduledToday = isDateScheduled(today, plan);
@@ -156,7 +167,6 @@ export const getProgress = async (req: AuthenticatedRequest, res: Response) => {
     }
 
     // 4. Calculate Past 30 Days Adherence
-    // Find all scheduled dates in the last 30 days
     const pastDays: dayjs.Dayjs[] = [];
     for (let i = 30; i >= 1; i--) {
       const d = today.subtract(i, 'day');
@@ -165,7 +175,6 @@ export const getProgress = async (req: AuthenticatedRequest, res: Response) => {
       }
     }
 
-    // Get all user readings in the last 30 days
     const monthAgoStr = today.subtract(30, 'day').format('YYYY-MM-DD');
     const pastReadings = await prisma.sugarReading.findMany({
       where: {
@@ -180,7 +189,6 @@ export const getProgress = async (req: AuthenticatedRequest, res: Response) => {
     pastDays.forEach((day) => {
       const dStr = day.format('YYYY-MM-DD');
       const dayLogs = pastReadings.filter(r => r.readingDate === dStr);
-      // Day is completed if ALL required types were checked
       const isDayComplete = requiredTypes.every((type) => {
         return dayLogs.some(r => r.readingType === type);
       });
@@ -204,7 +212,9 @@ export const getProgress = async (req: AuthenticatedRequest, res: Response) => {
         completedDays,
         totalScheduledDays,
         rate: adherenceRate
-      }
+      },
+      reminderTime: plan!.reminderTime,
+      isActive: plan!.isActive
     });
   } catch (error) {
     console.error(error);
