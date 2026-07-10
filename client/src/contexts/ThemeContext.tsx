@@ -4,9 +4,11 @@ interface ThemeContextType {
   darkMode: boolean;
   largeTextMode: boolean;
   highContrastMode: boolean;
+  familyView: 'amma' | 'caregiver';
   toggleDarkMode: () => void;
   toggleLargeTextMode: () => void;
   toggleHighContrastMode: () => void;
+  setFamilyView: (view: 'amma' | 'caregiver') => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -61,6 +63,15 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [highContrastMode]);
 
+  const [familyView, setFamilyViewInternal] = useState<'amma' | 'caregiver'>(() => {
+    return (localStorage.getItem('family_view') as 'amma' | 'caregiver') || 'amma';
+  });
+
+  const setFamilyView = (view: 'amma' | 'caregiver') => {
+    setFamilyViewInternal(view);
+    localStorage.setItem('family_view', view);
+  };
+
   const toggleDarkMode = () => setDarkMode(!darkMode);
   const toggleLargeTextMode = () => setLargeTextMode(!largeTextMode);
   const toggleHighContrastMode = () => setHighContrastMode(!highContrastMode);
@@ -70,9 +81,11 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       darkMode,
       largeTextMode,
       highContrastMode,
+      familyView,
       toggleDarkMode,
       toggleLargeTextMode,
-      toggleHighContrastMode
+      toggleHighContrastMode,
+      setFamilyView
     }}>
       {children}
     </ThemeContext.Provider>

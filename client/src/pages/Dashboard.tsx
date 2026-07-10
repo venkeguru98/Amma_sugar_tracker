@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
@@ -82,6 +83,7 @@ interface SummaryData {
 export const Dashboard: React.FC = () => {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
+  const { familyView } = useTheme();
   const navigate = useNavigate();
   const targetMin = user?.targetMin ?? 70;
   const targetMax = user?.targetMax ?? 140;
@@ -106,9 +108,8 @@ export const Dashboard: React.FC = () => {
 
   // Dynamic Adjusted Food Plan & Health Tip States
   const [foodPlan, setFoodPlan] = useState<AdjustedPlan | null>(null);
-
-  // Selected view mode: 'amma' | 'caregiver'
-  const familyView = localStorage.getItem('family_view') || 'amma';
+  // Ref to latest sugar value so food plan recalc can access it without re-fetching
+  const [latestGlucoseRef, setLatestGlucoseRef] = useState<number>(120);
 
   // Request browser notification permission on mount
   useEffect(() => {
@@ -160,46 +161,67 @@ export const Dashboard: React.FC = () => {
     return () => clearInterval(interval);
   }, [monProgress, i18n.language]);
 
+  // Fetch dashboard data only on mount (not on language change)
   useEffect(() => {
     fetchDashboardData();
+  }, []);
+
+  // Recalculate food plan locally whenever language changes — no network call needed
+  useEffect(() => {
+    if (latestGlucoseRef) {
+      const plan = getAdjustedFoodPlan(latestGlucoseRef, targetMin, targetMax, i18n.language);
+      setFoodPlan(plan);
+    }
   }, [i18n.language]);
 
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const res = await axios.get('/api/analytics/dashboard');
-      if (res.data.hasData) {
-        setSummary(res.data.summary);
-        setWeeklyChart(res.data.charts.weekly || []);
-        
-        // Fetch readings
-        const allRes = await axios.get('/api/reading', { params: { limit: 'all' } });
-        const list: Reading[] = allRes.data.readings || [];
+
+      // Parallelize all independent requests to cut waterfall latency
+      const [dashRes, allRes, remRes, progressRes] = await Promise.allSettled([
+        axios.get('/api/analytics/dashboard'),
+        axios.get('/api/reading', { params: { limit: 'all' } }),
+        axios.get('/api/extra/reminders'),
+        axios.get('/api/extra/monitoring-plan/progress', {
+          params: { clientDate: dayjs().format('YYYY-MM-DD') }
+        })
+      ]);
+
+      // Process analytics dashboard
+      if (dashRes.status === 'fulfilled' && dashRes.value.data.hasData) {
+        setSummary(dashRes.value.data.summary);
+        setWeeklyChart(dashRes.value.data.charts.weekly || []);
+        setHasData(true);
+
+        // Process readings
+        const list: Reading[] = allRes.status === 'fulfilled'
+          ? (allRes.value.data.readings || [])
+          : [];
         setAllReadings(list);
-        
-        // Fetch active reminders
-        const remRes = await axios.get('/api/extra/reminders');
-        setReminders(remRes.data.filter((r: Reminder) => r.isActive));
 
         if (list.length > 0) {
-          computeStoryMetrics(list, res.data.summary);
+          computeStoryMetrics(list, dashRes.value.data.summary);
         }
-        setHasData(true);
+
+        // Store latest glucose for future language-triggered recalculations
+        const latestGlucose = dashRes.value.data.summary?.latestReading?.bloodSugar || 120;
+        setLatestGlucoseRef(latestGlucose);
       } else {
         setHasData(false);
-        // Fallback food plan if no reading exists yet
         const defaultPlan = getAdjustedFoodPlan(120, targetMin, targetMax, i18n.language);
         setFoodPlan(defaultPlan);
+        setLatestGlucoseRef(120);
       }
 
-      // Fetch monitoring plan progress with timezone-safe clientDate query param
-      try {
-        const progressRes = await axios.get('/api/extra/monitoring-plan/progress', {
-          params: { clientDate: dayjs().format('YYYY-MM-DD') }
-        });
-        setMonProgress(progressRes.data);
-      } catch (e) {
-        console.error(e);
+      // Process reminders
+      if (remRes.status === 'fulfilled') {
+        setReminders(remRes.value.data.filter((r: Reminder) => r.isActive));
+      }
+
+      // Process monitoring plan progress
+      if (progressRes.status === 'fulfilled') {
+        setMonProgress(progressRes.value.data);
       }
     } catch (err) {
       console.error(err);
@@ -282,6 +304,7 @@ export const Dashboard: React.FC = () => {
       i18n.language
     );
     setFoodPlan(plan);
+    setLatestGlucoseRef(latestGlucose);
   };
 
   const getGreeting = () => {
@@ -336,22 +359,24 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="max-w-md mx-auto px-4 py-6 space-y-6 animate-fade-in pb-24 font-sans">
-      
+
+      {/* ===================================================== */}
+      {/* 🔔 GLOBAL OVERDUE REMINDER BANNER (Both Views)        */}
+      {/* ===================================================== */}
+      {isOverdue && monProgress && monProgress.completionPercent < 100 && (
+        <div className="p-4 bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900 rounded-3xl font-extrabold text-xs flex items-center gap-2 animate-pulse shadow-xs">
+          <span className="text-base">🔔</span>
+          <span>
+            {isTamil ? "சர்க்கரை பரிசோதனை நேரம்! தயவுசெய்து இன்று அட்டவணைப்படுத்தப்பட்ட சர்க்கரை அளவுகளைப் பதிவு செய்யவும்." : "Time for your sugar test. Please record today's scheduled sugar readings."}
+          </span>
+        </div>
+      )}
+
       {/* ==================================================== */}
       {/* 🏠 AMMA VIEW (MOBILE-FIRST CALM STORYCARD DESIGN)    */}
       {/* ==================================================== */}
       {familyView === 'amma' && (
         <div className="space-y-6">
-          
-          {/* In-app reminder banner (visible when browser notifications are blocked/denied and tests are pending past reminderTime) */}
-          {isOverdue && monProgress && monProgress.completionPercent < 100 && (typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'granted') && (
-            <div className="p-4 bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900 rounded-3xl font-extrabold text-xs flex items-center gap-2 animate-pulse shadow-xs">
-              <span className="text-base">🔔</span>
-              <span>
-                {isTamil ? "சர்க்கரை பரிசோதனை நேரம்! தயவுசெய்து இன்று அட்டவணைப்படுத்தப்பட்ட சர்க்கரை அளவுகளைப் பதிவு செய்யவும்." : "Time for your sugar test. Please record today's scheduled sugar readings."}
-              </span>
-            </div>
-          )}
 
           {/* 🌸 Redesigned Amma View Health Companion Card */}
           <div className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-slate-900 dark:to-emerald-955/20 p-6 rounded-3xl border border-emerald-100/40 dark:border-slate-800 shadow-sm space-y-4">

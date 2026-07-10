@@ -6,6 +6,7 @@ import {
   Search, Trash2, Edit3, Printer, FileSpreadsheet, FileDown, Eye, X, ChevronLeft
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 
 interface Reading {
   id: string;
@@ -63,7 +64,7 @@ export const History: React.FC = () => {
   const [selectedReading, setSelectedReading] = useState<Reading | null>(null);
 
   // Selected view
-  const familyView = localStorage.getItem('family_view') || 'amma';
+  const { familyView } = useTheme();
 
   useEffect(() => {
     fetchReadings();

@@ -14,9 +14,11 @@ import { Reports } from './pages/Reports';
 import { HealthHub } from './pages/HealthHub';
 import { CalendarView } from './pages/CalendarView';
 
+import { useTheme } from './contexts/ThemeContext';
+
 // Route Redirect Guard for Amma View
 const CaregiverRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const familyView = localStorage.getItem('family_view') || 'amma';
+  const { familyView } = useTheme();
   if (familyView === 'amma') {
     return <Navigate to="/" replace />;
   }

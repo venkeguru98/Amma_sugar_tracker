@@ -33,10 +33,29 @@ self.addEventListener('fetch', (e) => {
   if (e.request.url.includes('/api/') || !e.request.url.startsWith(self.location.origin)) {
     return;
   }
+  
   e.respondWith(
     caches.match(e.request).then((cachedResponse) => {
-      return cachedResponse || fetch(e.request).catch(() => {
-        // Fallback to offline index.html for SPA routing
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+      
+      return fetch(e.request).then((networkResponse) => {
+        // Cache dynamic static assets (js, css, png, jpg, svg) from same origin
+        if (
+          networkResponse.status === 200 &&
+          (e.request.url.includes('/assets/') || 
+           e.request.url.endsWith('.js') || 
+           e.request.url.endsWith('.css'))
+        ) {
+          const cacheCopy = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(e.request, cacheCopy);
+          });
+        }
+        return networkResponse;
+      }).catch(() => {
+        // Fallback to offline index.html for SPA client-side routing
         return caches.match('/index.html');
       });
     })

@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { 
-  User, Shield, Eye, Database, ChevronLeft, Clock, Calendar, CheckSquare
+  User, Shield, Eye, Database, ChevronLeft, Clock, Calendar, CheckSquare, Bell
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -14,13 +14,12 @@ export const Settings: React.FC = () => {
   const navigate = useNavigate();
   const { 
     largeTextMode, highContrastMode, darkMode,
-    toggleLargeTextMode, toggleHighContrastMode, toggleDarkMode 
+    toggleLargeTextMode, toggleHighContrastMode, toggleDarkMode,
+    familyView, setFamilyView
   } = useTheme();
 
-  // Family View state: 'amma' | 'caregiver'
-  const [familyView, setFamilyView] = useState(() => {
-    return localStorage.getItem('family_view') || 'amma';
-  });
+  // Browser Push Notification state
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
 
   // Elder Mode state
   const [elderMode, setElderMode] = useState(() => {
@@ -69,6 +68,12 @@ export const Settings: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setNotificationPermission(Notification.permission);
+    }
+  }, []);
+
+  useEffect(() => {
     if (user) {
       setName(user.name);
       setAge(user.age?.toString() || '');
@@ -86,8 +91,10 @@ export const Settings: React.FC = () => {
       setEnableWhatsapp(meta.enableWhatsapp || false);
       setEnableSms(meta.enableSms || false);
     }
+  }, [user]);
 
-    // Fetch active monitoring plan
+  // Fetch active monitoring plan only once on mount
+  useEffect(() => {
     axios.get('/api/extra/monitoring-plan')
       .then((res) => {
         const plan = res.data;
@@ -112,7 +119,7 @@ export const Settings: React.FC = () => {
         else setMonReminderOption('custom');
       })
       .catch((err) => console.error(err));
-  }, [user]);
+  }, []);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -174,9 +181,7 @@ export const Settings: React.FC = () => {
   };
 
   const toggleFamilyViewSelection = (view: 'amma' | 'caregiver') => {
-    setFamilyView(view);
-    localStorage.setItem('family_view', view);
-    window.location.reload(); // Reload to refresh navigation limits
+    setFamilyView(view); // Updates ThemeContext + localStorage, no reload needed
   };
 
   const toggleElderModeSelection = (checked: boolean) => {
@@ -411,6 +416,76 @@ export const Settings: React.FC = () => {
               >
                 தமிழ்
               </button>
+            </div>
+          </div>
+
+          {/* Browser Push Notifications */}
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-100 dark:border-slate-800 space-y-4">
+            <h2 className="text-base font-bold text-slate-800 dark:text-white border-b pb-2 flex items-center gap-1.5">
+              <Bell className="w-5 h-5 text-emerald-500" />
+              <span>{isTamil ? 'அறிவிப்புகள்' : 'Reminders'}</span>
+            </h2>
+
+            <div className="space-y-3">
+              {/* Permission Status Badge */}
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-slate-650 dark:text-slate-350">
+                  {isTamil ? 'அறிவிப்பு நிலை' : 'Push Notification Status'}
+                </span>
+                <span className={`text-xs font-black px-2.5 py-1 rounded-full ${
+                  notificationPermission === 'granted'
+                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                    : notificationPermission === 'denied'
+                    ? 'bg-rose-50 text-rose-600 border border-rose-100'
+                    : 'bg-amber-50 text-amber-600 border border-amber-100'
+                }`}>
+                  {notificationPermission === 'granted'
+                    ? (isTamil ? '✅ அனுமதிக்கப்பட்டது' : '✅ Allowed')
+                    : notificationPermission === 'denied'
+                    ? (isTamil ? '🚫 தடுக்கப்பட்டது' : '🚫 Blocked')
+                    : (isTamil ? '⏳ கேட்கப்படவில்லை' : '⏳ Not asked yet')}
+                </span>
+              </div>
+
+              {/* Request Permission Button */}
+              {notificationPermission !== 'granted' && notificationPermission !== 'denied' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    Notification.requestPermission().then((perm) => {
+                      setNotificationPermission(perm);
+                    });
+                  }}
+                  className="w-full py-2.5 rounded-xl bg-emerald-500 text-white text-sm font-bold hover:bg-emerald-600 transition-colors"
+                >
+                  {isTamil ? '🔔 அறிவிப்புகளை இயக்கு' : '🔔 Enable Reminders'}
+                </button>
+              )}
+
+              {notificationPermission === 'denied' && (
+                <p className="text-xs text-rose-500 font-semibold">
+                  {isTamil
+                    ? 'அறிவிப்புகள் உலாவியில் தடுக்கப்பட்டுள்ளன. உலாவி அமைப்புகளில் அனுமதிக்கவும்.'
+                    : 'Notifications are blocked in your browser. Please allow them in browser settings.'}
+                </p>
+              )}
+
+              {notificationPermission === 'granted' && (
+                <p className="text-xs text-emerald-600 font-semibold">
+                  {isTamil
+                    ? '✅ சர்க்கரை பரிசோதனை நேரத்தில் நினைவூட்டல் வழங்கப்படும்.'
+                    : '✅ You will receive an in-browser reminder when your scheduled sugar test time arrives.'}
+                </p>
+              )}
+
+              {/* WhatsApp/SMS Disclaimer */}
+              <div className="mt-3 p-3 bg-amber-50 dark:bg-amber-955/20 border border-amber-100 dark:border-amber-900 rounded-xl">
+                <p className="text-xs text-amber-700 dark:text-amber-400 font-semibold leading-relaxed">
+                  ℹ️ {isTamil
+                    ? 'WhatsApp / SMS தகவல்கள் Twilio API ஒருங்கிணைப்பு தேவை. தற்போது சாண்ட்பாக்ஸ் பயிற்சி பயன்முறையில் உள்ளது.'
+                    : 'WhatsApp & SMS alerts require a custom Twilio API setup and are currently in sandbox/demo mode only.'}
+                </p>
+              </div>
             </div>
           </div>
 

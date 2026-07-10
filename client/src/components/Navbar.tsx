@@ -14,13 +14,9 @@ export const Navbar: React.FC = () => {
   const location = useLocation();
   const { 
     largeTextMode, highContrastMode, darkMode,
-    toggleLargeTextMode, toggleHighContrastMode, toggleDarkMode 
+    toggleLargeTextMode, toggleHighContrastMode, toggleDarkMode,
+    familyView, setFamilyView
   } = useTheme();
-
-  // Family View state: 'amma' or 'caregiver'
-  const [familyView, setFamilyView] = useState(() => {
-    return localStorage.getItem('family_view') || 'amma';
-  });
 
   // Elder Mode state
   const [elderMode, setElderMode] = useState(() => {
@@ -41,8 +37,6 @@ export const Navbar: React.FC = () => {
   const toggleFamilyView = () => {
     const nextView = familyView === 'amma' ? 'caregiver' : 'amma';
     setFamilyView(nextView);
-    localStorage.setItem('family_view', nextView);
-    window.location.reload(); // Reload to refresh widgets and routes cleanly
   };
 
   const toggleElderMode = () => {
