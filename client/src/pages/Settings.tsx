@@ -55,6 +55,8 @@ export const Settings: React.FC = () => {
   const [monEndDate, setMonEndDate] = useState('');
   const [monIsActive, setMonIsActive] = useState(false);
   const [monLoading, setMonLoading] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [hasPlanInDb, setHasPlanInDb] = useState(false);
 
   // Wizard States
   const [wizardStep, setWizardStep] = useState(1);
@@ -93,9 +95,15 @@ export const Settings: React.FC = () => {
         setMonScheduleDays(plan.scheduleDays.split(',').map((s: string) => s.trim()).filter(Boolean));
         setMonReminderTime(plan.reminderTime);
         setMonReadingTypes(plan.readingTypes.split(',').map((s: string) => s.trim()).filter(Boolean));
+        setMonStartDate(plan.startDate || '');
         setMonEndDate(plan.endDate || '');
         setMonIsActive(plan.isActive);
         setMonCreator(plan.adviser || 'doctor');
+        if (plan && plan.id) {
+          setHasPlanInDb(true);
+        } else {
+          setHasPlanInDb(false);
+        }
 
         // Infer option
         if (plan.reminderTime === '08:00') setMonReminderOption('morning');
@@ -156,6 +164,8 @@ export const Settings: React.FC = () => {
         adviser: monCreator
       });
       setSuccess(true);
+      setHasPlanInDb(true);
+      setIsEditing(false);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to save monitoring plan');
     } finally {
@@ -562,12 +572,126 @@ export const Settings: React.FC = () => {
                 <input
                   type="checkbox"
                   checked={monIsActive}
-                  onChange={(e) => setMonIsActive(e.target.checked)}
+                  disabled={monLoading}
+                  onChange={async (e) => {
+                    const val = e.target.checked;
+                    setMonIsActive(val);
+                    if (hasPlanInDb) {
+                      setMonLoading(true);
+                      try {
+                        await axios.post('/api/extra/monitoring-plan', {
+                          frequency: monFrequency,
+                          scheduleDays: monScheduleDays.join(','),
+                          reminderTime: monReminderTime,
+                          readingTypes: monReadingTypes.join(','),
+                          startDate: monStartDate || null,
+                          endDate: monEndDate || null,
+                          isActive: val,
+                          adviser: monCreator
+                        });
+                        setSuccess(true);
+                      } catch (err: any) {
+                        setError(err.response?.data?.error || 'Failed to update plan status');
+                      } finally {
+                        setMonLoading(false);
+                      }
+                    }
+                  }}
                   className="w-5 h-5 text-emerald-650 border-slate-350 rounded focus:ring-emerald-500"
                 />
               </div>
 
-              {monIsActive && (
+              {monIsActive && hasPlanInDb && !isEditing && (
+                <div className="space-y-6 border-t pt-4">
+                  <div className="bg-emerald-50/20 dark:bg-slate-850 p-6 rounded-2xl border border-emerald-100/35 space-y-4">
+                    <h3 className="text-sm font-black text-slate-855 dark:text-white flex items-center gap-1.5 border-b pb-2">
+                      <span>📋</span>
+                      <span>{isTamil ? "தற்போதைய சர்க்கரை பரிசோதனை அட்டவணை" : "Current Monitoring Plan"}</span>
+                    </h3>
+                    
+                    <div className="space-y-3 text-xs text-slate-650 dark:text-slate-300 font-semibold leading-relaxed">
+                      <p>
+                        👤 <strong className="text-slate-850 dark:text-white">{isTamil ? "அமைப்பவர்:" : "Adviser:"}</strong>{' '}
+                        {monCreator === 'doctor' ? (isTamil ? 'மருத்துவர்' : 'Doctor') : monCreator === 'family' ? (isTamil ? 'குடும்ப உறுப்பினர்' : 'Family Caregiver') : (isTamil ? 'சுய கண்காணிப்பு' : 'Myself')}
+                      </p>
+                      <p>
+                        📅 <strong className="text-slate-850 dark:text-white">{isTamil ? "அதிர்வெண்:" : "Frequency:"}</strong>{' '}
+                        {monFrequency === 'daily' 
+                          ? (isTamil ? 'தினமும்' : 'Every Day')
+                          : monFrequency === 'alternate'
+                          ? (isTamil ? '2 நாட்களுக்கு ஒருமுறை' : 'Every 2 Days')
+                          : monFrequency === 'weekly'
+                          ? (isTamil ? 'வாரத்திற்கு ஒருமுறை' : 'Weekly (Every 7 Days)')
+                          : (isTamil ? `குறிப்பிட்ட நாட்கள்: ${monScheduleDays.map(d => ['ஞாயிறு','திங்கள்','செவ்வாய்','புதன்','வியாழன்','வெள்ளி','சனி'][parseInt(d)]).join(', ')}` : `Custom Days (${monScheduleDays.map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][parseInt(d)]).join(', ')})`)}
+                      </p>
+                      <p>
+                        ⏰ <strong className="text-slate-850 dark:text-white">{isTamil ? "நினைவூட்டல்:" : "Reminder:"}</strong>{' '}
+                        {monReminderTime}
+                      </p>
+                      {monStartDate && (
+                        <p>
+                          📅 <strong className="text-slate-850 dark:text-white">{isTamil ? "துவங்கும் நாள்:" : "Active From:"}</strong>{' '}
+                          {monStartDate}
+                        </p>
+                      )}
+                      {monEndDate && (
+                        <p>
+                          📅 <strong className="text-slate-850 dark:text-white">{isTamil ? "முடிவடையும் நாள்:" : "Ends:"}</strong>{' '}
+                          {monEndDate}
+                        </p>
+                      )}
+                      <p>
+                        🩺 <strong className="text-slate-850 dark:text-white">{isTamil ? "தேவையான சோதனைகள்:" : "Required Tests:"}</strong>{' '}
+                        {monReadingTypes.map(tKey => t(`reading.types.${tKey}`)).join(', ')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-4 border-t pt-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditing(true);
+                        setWizardStep(1);
+                      }}
+                      className="py-3 px-6 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-xs flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      ✏️ {isTamil ? "அட்டவணையை திருத்தவும்" : "Edit Plan"}
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setMonLoading(true);
+                        try {
+                          await axios.post('/api/extra/monitoring-plan', {
+                            frequency: monFrequency,
+                            scheduleDays: monScheduleDays.join(','),
+                            reminderTime: monReminderTime,
+                            readingTypes: monReadingTypes.join(','),
+                            startDate: monStartDate || null,
+                            endDate: monEndDate || null,
+                            isActive: false,
+                            adviser: monCreator
+                          });
+                          setMonIsActive(false);
+                          setSuccess(true);
+                        } catch (err: any) {
+                          setError(err.response?.data?.error || 'Failed to disable plan');
+                        } finally {
+                          setMonLoading(false);
+                        }
+                      }}
+                      disabled={monLoading}
+                      className="py-3 px-6 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold rounded-2xl text-xs flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      🛑 {isTamil ? "அட்டவணையை முடக்கவும்" : "Disable Plan"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {monIsActive && (!hasPlanInDb || isEditing) && (
                 <div className="space-y-6 border-t pt-4">
                   {/* Wizard Step Progress Indicator */}
                   <div className="flex items-center justify-between text-xs font-bold text-slate-400 uppercase pb-2">

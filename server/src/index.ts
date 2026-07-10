@@ -14,6 +14,7 @@ import readingRoutes from './routes/reading.routes';
 import analyticsRoutes from './routes/analytics.routes';
 import reportRoutes from './routes/report.routes';
 import extraRoutes from './routes/extra.routes';
+import { startReminderWorker } from './utils/reminderWorker';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -97,4 +98,5 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Database provider configured: ${process.env.DATABASE_URL?.startsWith('file:') ? 'SQLite' : 'PostgreSQL'}`);
+  startReminderWorker();
 });
