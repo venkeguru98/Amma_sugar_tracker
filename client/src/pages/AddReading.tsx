@@ -5,6 +5,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { Calendar, Clock, Activity, ChevronLeft, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { invalidateDashboardCache } from './Dashboard';
+
 
 interface ReadingFormValues {
   readingDate: string;
@@ -87,6 +89,7 @@ export const AddReading: React.FC = () => {
       } else {
         await axios.post('/api/reading', data);
       }
+      invalidateDashboardCache();
       setSuccess(true);
       setTimeout(() => {
         navigate('/history');

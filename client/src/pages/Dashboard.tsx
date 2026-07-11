@@ -96,6 +96,15 @@ const CardSkeleton: React.FC<{ isTamil?: boolean }> = ({ isTamil }) => (
   </div>
 );
 
+// Persistent in-memory cache for SPA session
+let cachedDashboardData: any = null;
+let cachedDashboardTime = 0;
+
+export const invalidateDashboardCache = () => {
+  cachedDashboardData = null;
+  cachedDashboardTime = 0;
+};
+
 export const Dashboard: React.FC = () => {
 
   const { t, i18n } = useTranslation();
@@ -204,9 +213,65 @@ export const Dashboard: React.FC = () => {
     return () => clearInterval(interval);
   }, [monProgress, i18n.language]);
 
+  const applyDashboardData = (data: any) => {
+    setReminders(data.reminders ? data.reminders.filter((r: Reminder) => r.isActive) : []);
+    setMonProgress(data.monitoringProgress || null);
+
+    if (data.hasData && data.summary) {
+      setSummary(data.summary);
+      setWeeklyChart(data.charts?.weekly || []);
+      setHasData(true);
+      setAllReadings(data.recentReadings || []);
+
+      // Precalculated values from server
+      setTodayVal(data.summary.todayVal);
+      setYesterdayVal(data.summary.yesterdayVal);
+      setThisWeekAvg(data.summary.weeklyAvg);
+      setThisMonthAvg(data.summary.monthlyAvg);
+      setLastMonthAvg(data.summary.lastMonthAvg);
+      setActualTodayAvg(data.summary.actualTodayAvg);
+      setActualYesterdayAvg(data.summary.actualYesterdayAvg);
+
+      const latestGlucose = data.summary.latestReading?.bloodSugar || 120;
+      setLatestGlucoseRef(latestGlucose);
+
+      // Adjust food plan immediately
+      const plan = getAdjustedFoodPlan(latestGlucose, targetMin, targetMax, i18n.language);
+      setFoodPlan(plan);
+    } else {
+      setHasData(false);
+      setAllReadings([]);
+      const defaultPlan = getAdjustedFoodPlan(120, targetMin, targetMax, i18n.language);
+      setFoodPlan(defaultPlan);
+      setLatestGlucoseRef(120);
+      setSummary(null);
+      setWeeklyChart([]);
+      setTodayVal(null);
+      setYesterdayVal(null);
+      setThisWeekAvg(0);
+      setThisMonthAvg(0);
+      setLastMonthAvg(0);
+      setActualTodayAvg(null);
+      setActualYesterdayAvg(null);
+    }
+  };
+
   // Fetch dashboard data only on mount (not on language change)
   useEffect(() => {
-    fetchDashboardData(0);
+    if (cachedDashboardData) {
+      console.log("[Cache] Hit: Loading dashboard content instantly from memory.");
+      applyDashboardData(cachedDashboardData);
+      setLoading(false);
+
+      // Check if cache is older than 15 seconds
+      const isStale = Date.now() - cachedDashboardTime > 15000;
+      if (isStale) {
+        fetchDashboardData(0, true);
+      }
+    } else {
+      console.log("[Cache] Miss: Fetching fresh dashboard data.");
+      fetchDashboardData(0, false);
+    }
   }, []);
 
   // Recalculate food plan locally whenever language changes — no network call needed
@@ -217,11 +282,13 @@ export const Dashboard: React.FC = () => {
     }
   }, [i18n.language]);
 
-  const fetchDashboardData = async (retryCount = 0) => {
+  const fetchDashboardData = async (retryCount = 0, isBackground = false) => {
     try {
-      setLoading(true);
+      if (!isBackground) {
+        setLoading(true);
+      }
       setError(null);
-      console.log(`[API] Fetching combined dashboard records. Attempt: ${retryCount + 1}`);
+      console.log(`[API] Fetching combined dashboard records. Attempt: ${retryCount + 1}, Background: ${isBackground}`);
 
       // Call single combined API endpoint
       const res = await axios.get('/api/analytics/dashboard', {
@@ -229,37 +296,10 @@ export const Dashboard: React.FC = () => {
       });
 
       const data = res.data;
-      setReminders(data.reminders ? data.reminders.filter((r: Reminder) => r.isActive) : []);
-      setMonProgress(data.monitoringProgress || null);
+      cachedDashboardData = data;
+      cachedDashboardTime = Date.now();
 
-      if (data.hasData && data.summary) {
-        setSummary(data.summary);
-        setWeeklyChart(data.charts?.weekly || []);
-        setHasData(true);
-        setAllReadings(data.recentReadings || []);
-
-        // Precalculated values from server
-        setTodayVal(data.summary.todayVal);
-        setYesterdayVal(data.summary.yesterdayVal);
-        setThisWeekAvg(data.summary.weeklyAvg);
-        setThisMonthAvg(data.summary.monthlyAvg);
-        setLastMonthAvg(data.summary.lastMonthAvg);
-        setActualTodayAvg(data.summary.actualTodayAvg);
-        setActualYesterdayAvg(data.summary.actualYesterdayAvg);
-
-        const latestGlucose = data.summary.latestReading?.bloodSugar || 120;
-        setLatestGlucoseRef(latestGlucose);
-
-        // Adjust food plan immediately
-        const plan = getAdjustedFoodPlan(latestGlucose, targetMin, targetMax, i18n.language);
-        setFoodPlan(plan);
-      } else {
-        setHasData(false);
-        setAllReadings([]);
-        const defaultPlan = getAdjustedFoodPlan(120, targetMin, targetMax, i18n.language);
-        setFoodPlan(defaultPlan);
-        setLatestGlucoseRef(120);
-      }
+      applyDashboardData(data);
       
       console.log("[API] Combined dashboard analytics successfully updated.");
     } catch (err: any) {
@@ -271,14 +311,18 @@ export const Dashboard: React.FC = () => {
         const nextDelay = 1500 * (retryCount + 1);
         console.warn(`[API] Retrying dashboard query in ${nextDelay}ms...`);
         setTimeout(() => {
-          fetchDashboardData(retryCount + 1);
+          fetchDashboardData(retryCount + 1, isBackground);
         }, nextDelay);
       } else {
-        setError(err.message || 'Server error occurred');
+        if (!isBackground) {
+          setError(err.message || 'Server error occurred');
+        }
       }
     } finally {
-      if (retryCount === 0 || !error) {
-        setLoading(false);
+      if (!isBackground) {
+        if (retryCount === 0 || !error) {
+          setLoading(false);
+        }
       }
     }
   };
@@ -627,6 +671,42 @@ export const Dashboard: React.FC = () => {
           </ErrorBoundary>
 
           
+          {/* 🍛 Today's Healthy Food Plan */}
+          <ErrorBoundary name="Food Plan" isTamil={isTamil}>
+            {loading ? (
+              <CardSkeleton isTamil={isTamil} />
+            ) : foodPlan ? (
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-850 space-y-4">
+              <h3 className="text-base font-heading font-extrabold text-slate-850 dark:text-white flex items-center gap-2 border-b pb-2">
+                <span>🍛</span>
+                <span>{isTamil ? "இன்றைய உணவுப் பரிந்துரை" : "Today's Healthy Food Plan"}</span>
+              </h3>
+
+              <div className="space-y-4 pt-1">
+                {[
+                  { label: isTamil ? "🍳 காலை உணவு" : "🍳 Breakfast", value: foodPlan.breakfast },
+                  { label: isTamil ? "🍎 முற்பகல் பழம்" : "🍎 Mid Morning Fruit", value: foodPlan.midMorning },
+                  { label: isTamil ? "🍛 மதிய உணவு" : "🍛 Lunch", value: foodPlan.lunch },
+                  { label: isTamil ? "☕ மாலை சிற்றுண்டி" : "☕ Evening Snack", value: foodPlan.snack },
+                  { label: isTamil ? "🌙 இரவு உணவு" : "🌙 Dinner", value: foodPlan.dinner }
+                ].map((meal, index) => (
+                  <div key={index} className="flex flex-col border-b border-slate-50 dark:border-slate-850 pb-2.5 last:border-b-0 last:pb-0">
+                    <span className="text-xxs font-bold text-slate-400 uppercase tracking-wider">{meal.label}</span>
+                    <span className="text-sm font-bold text-slate-750 dark:text-slate-200 mt-0.5 leading-relaxed">{meal.value}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="p-3 bg-emerald-50/20 dark:bg-slate-800 border border-emerald-100/30 rounded-xl mt-4">
+                <p className="text-xxs font-bold text-slate-500 dark:text-slate-300 flex items-start gap-1 leading-relaxed">
+                  <AlertCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                  <span>{foodPlan.tip}</span>
+                </p>
+              </div>
+            </div>
+            ) : null}
+          </ErrorBoundary>
+
           {/* ❤️ How Are You Doing? (Amma View Only) */}
           <ErrorBoundary name="How Are You Doing" isTamil={isTamil}>
             {loading ? (
@@ -771,42 +851,6 @@ export const Dashboard: React.FC = () => {
                 })()}
               </div>
 
-            </div>
-            ) : null}
-          </ErrorBoundary>
-
-          {/* 🍛 Today's Healthy Food Plan */}
-          <ErrorBoundary name="Food Plan" isTamil={isTamil}>
-            {loading ? (
-              <CardSkeleton isTamil={isTamil} />
-            ) : foodPlan ? (
-            <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-850 space-y-4">
-              <h3 className="text-base font-heading font-extrabold text-slate-850 dark:text-white flex items-center gap-2 border-b pb-2">
-                <span>🍛</span>
-                <span>{isTamil ? "இன்றைய உணவுப் பரிந்துரை" : "Today's Healthy Food Plan"}</span>
-              </h3>
-
-              <div className="space-y-4 pt-1">
-                {[
-                  { label: isTamil ? "🍳 காலை உணவு" : "🍳 Breakfast", value: foodPlan.breakfast },
-                  { label: isTamil ? "🍎 முற்பகல் பழம்" : "🍎 Mid Morning Fruit", value: foodPlan.midMorning },
-                  { label: isTamil ? "🍛 மதிய உணவு" : "🍛 Lunch", value: foodPlan.lunch },
-                  { label: isTamil ? "☕ மாலை சிற்றுண்டி" : "☕ Evening Snack", value: foodPlan.snack },
-                  { label: isTamil ? "🌙 இரவு உணவு" : "🌙 Dinner", value: foodPlan.dinner }
-                ].map((meal, index) => (
-                  <div key={index} className="flex flex-col border-b border-slate-50 dark:border-slate-850 pb-2.5 last:border-b-0 last:pb-0">
-                    <span className="text-xxs font-bold text-slate-400 uppercase tracking-wider">{meal.label}</span>
-                    <span className="text-sm font-bold text-slate-750 dark:text-slate-200 mt-0.5 leading-relaxed">{meal.value}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="p-3 bg-emerald-50/20 dark:bg-slate-800 border border-emerald-100/30 rounded-xl mt-4">
-                <p className="text-xxs font-bold text-slate-500 dark:text-slate-300 flex items-start gap-1 leading-relaxed">
-                  <AlertCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                  <span>{foodPlan.tip}</span>
-                </p>
-              </div>
             </div>
             ) : null}
           </ErrorBoundary>

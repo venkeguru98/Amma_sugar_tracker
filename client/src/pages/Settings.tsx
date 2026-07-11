@@ -7,6 +7,7 @@ import {
   User, Shield, Eye, Database, ChevronLeft, Clock, Calendar, CheckSquare, Bell
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { invalidateDashboardCache } from './Dashboard';
 
 export const Settings: React.FC = () => {
   const { t, i18n } = useTranslation();
@@ -145,6 +146,7 @@ export const Settings: React.FC = () => {
           enableSms
         }
       });
+      invalidateDashboardCache();
       setSuccess(true);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to update preferences');
@@ -170,6 +172,7 @@ export const Settings: React.FC = () => {
         isActive: monIsActive,
         adviser: monCreator
       });
+      invalidateDashboardCache();
       setSuccess(true);
       setHasPlanInDb(true);
       setIsEditing(false);
@@ -664,6 +667,7 @@ export const Settings: React.FC = () => {
                           isActive: val,
                           adviser: monCreator
                         });
+                        invalidateDashboardCache();
                         setSuccess(true);
                       } catch (err: any) {
                         setError(err.response?.data?.error || 'Failed to update plan status');
@@ -749,6 +753,7 @@ export const Settings: React.FC = () => {
                             isActive: false,
                             adviser: monCreator
                           });
+                          invalidateDashboardCache();
                           setMonIsActive(false);
                           setSuccess(true);
                         } catch (err: any) {

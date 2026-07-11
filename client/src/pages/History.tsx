@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { invalidateDashboardCache } from './Dashboard';
 
 interface Reading {
   id: string;
@@ -97,6 +98,7 @@ export const History: React.FC = () => {
     if (!window.confirm(t('history.confirmDelete'))) return;
     try {
       await axios.delete(`/api/reading/${id}`);
+      invalidateDashboardCache();
       fetchReadings();
     } catch (err) {
       console.error(err);
