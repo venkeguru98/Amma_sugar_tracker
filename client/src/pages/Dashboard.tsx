@@ -14,6 +14,8 @@ import {
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import { getAdjustedFoodPlan, AdjustedPlan } from '../utils/foodRecommendations';
+import { ErrorBoundary } from '../components/ErrorBoundary';
+
 
 interface Reading {
   id: string;
@@ -80,7 +82,22 @@ interface SummaryData {
   categories: { green: number; yellow: number; orange: number; red: number };
 }
 
+// Skeleton card shown while individual widgets are loading
+const CardSkeleton: React.FC<{ isTamil?: boolean }> = ({ isTamil }) => (
+  <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-slate-850 space-y-4 animate-pulse">
+    <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-1/3"></div>
+    <div className="space-y-2">
+      <div className="h-10 bg-slate-100 dark:bg-slate-800 rounded w-3/4"></div>
+      <div className="h-3 bg-slate-100 dark:bg-slate-800 rounded w-1/2"></div>
+    </div>
+    <div className="text-center text-slate-400 font-bold text-[10px] pt-1">
+      {isTamil ? "உங்கள் உடல்நலப் பதிவுகள் ஏற்றப்படுகின்றன..." : "Loading your health records..."}
+    </div>
+  </div>
+);
+
 export const Dashboard: React.FC = () => {
+
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const { familyView } = useTheme();
@@ -96,6 +113,8 @@ export const Dashboard: React.FC = () => {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [monProgress, setMonProgress] = useState<MonitoringProgress | null>(null);
   const [isOverdue, setIsOverdue] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isOffline, setIsOffline] = useState(() => typeof navigator !== 'undefined' ? !navigator.onLine : false);
 
   // Story Averages
   const [todayVal, setTodayVal] = useState<number | null>(null);
@@ -110,6 +129,30 @@ export const Dashboard: React.FC = () => {
   const [foodPlan, setFoodPlan] = useState<AdjustedPlan | null>(null);
   // Ref to latest sugar value so food plan recalc can access it without re-fetching
   const [latestGlucoseRef, setLatestGlucoseRef] = useState<number>(120);
+
+  // Monitor online status
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleOnline = () => {
+      console.log("[Network] Browser went online");
+      setIsOffline(false);
+      setError(null);
+      fetchDashboardData(0);
+    };
+
+    const handleOffline = () => {
+      console.warn("[Network] Browser went offline");
+      setIsOffline(true);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // Request browser notification permission on mount
   useEffect(() => {
@@ -163,7 +206,7 @@ export const Dashboard: React.FC = () => {
 
   // Fetch dashboard data only on mount (not on language change)
   useEffect(() => {
-    fetchDashboardData();
+    fetchDashboardData(0);
   }, []);
 
   // Recalculate food plan locally whenever language changes — no network call needed
@@ -174,59 +217,69 @@ export const Dashboard: React.FC = () => {
     }
   }, [i18n.language]);
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (retryCount = 0) => {
     try {
       setLoading(true);
+      setError(null);
+      console.log(`[API] Fetching combined dashboard records. Attempt: ${retryCount + 1}`);
 
-      // Parallelize all independent requests to cut waterfall latency
-      const [dashRes, allRes, remRes, progressRes] = await Promise.allSettled([
-        axios.get('/api/analytics/dashboard'),
-        axios.get('/api/reading', { params: { limit: 'all' } }),
-        axios.get('/api/extra/reminders'),
-        axios.get('/api/extra/monitoring-plan/progress', {
-          params: { clientDate: dayjs().format('YYYY-MM-DD') }
-        })
-      ]);
+      // Call single combined API endpoint
+      const res = await axios.get('/api/analytics/dashboard', {
+        params: { clientDate: dayjs().format('YYYY-MM-DD') }
+      });
 
-      // Process analytics dashboard
-      if (dashRes.status === 'fulfilled' && dashRes.value.data.hasData) {
-        setSummary(dashRes.value.data.summary);
-        setWeeklyChart(dashRes.value.data.charts.weekly || []);
+      const data = res.data;
+      setReminders(data.reminders ? data.reminders.filter((r: Reminder) => r.isActive) : []);
+      setMonProgress(data.monitoringProgress || null);
+
+      if (data.hasData && data.summary) {
+        setSummary(data.summary);
+        setWeeklyChart(data.charts?.weekly || []);
         setHasData(true);
+        setAllReadings(data.recentReadings || []);
 
-        // Process readings
-        const list: Reading[] = allRes.status === 'fulfilled'
-          ? (allRes.value.data.readings || [])
-          : [];
-        setAllReadings(list);
+        // Precalculated values from server
+        setTodayVal(data.summary.todayVal);
+        setYesterdayVal(data.summary.yesterdayVal);
+        setThisWeekAvg(data.summary.weeklyAvg);
+        setThisMonthAvg(data.summary.monthlyAvg);
+        setLastMonthAvg(data.summary.lastMonthAvg);
+        setActualTodayAvg(data.summary.actualTodayAvg);
+        setActualYesterdayAvg(data.summary.actualYesterdayAvg);
 
-        if (list.length > 0) {
-          computeStoryMetrics(list, dashRes.value.data.summary);
-        }
-
-        // Store latest glucose for future language-triggered recalculations
-        const latestGlucose = dashRes.value.data.summary?.latestReading?.bloodSugar || 120;
+        const latestGlucose = data.summary.latestReading?.bloodSugar || 120;
         setLatestGlucoseRef(latestGlucose);
+
+        // Adjust food plan immediately
+        const plan = getAdjustedFoodPlan(latestGlucose, targetMin, targetMax, i18n.language);
+        setFoodPlan(plan);
       } else {
         setHasData(false);
+        setAllReadings([]);
         const defaultPlan = getAdjustedFoodPlan(120, targetMin, targetMax, i18n.language);
         setFoodPlan(defaultPlan);
         setLatestGlucoseRef(120);
       }
-
-      // Process reminders
-      if (remRes.status === 'fulfilled') {
-        setReminders(remRes.value.data.filter((r: Reminder) => r.isActive));
+      
+      console.log("[API] Combined dashboard analytics successfully updated.");
+    } catch (err: any) {
+      console.error(`[API] Combined dashboard fetch failed:`, err);
+      
+      // Auto retry with exponential backoff on network failures
+      const isNetworkError = !err.response || err.code === 'ERR_NETWORK' || err.message === 'Network Error';
+      if (isNetworkError && retryCount < 3) {
+        const nextDelay = 1500 * (retryCount + 1);
+        console.warn(`[API] Retrying dashboard query in ${nextDelay}ms...`);
+        setTimeout(() => {
+          fetchDashboardData(retryCount + 1);
+        }, nextDelay);
+      } else {
+        setError(err.message || 'Server error occurred');
       }
-
-      // Process monitoring plan progress
-      if (progressRes.status === 'fulfilled') {
-        setMonProgress(progressRes.value.data);
-      }
-    } catch (err) {
-      console.error(err);
     } finally {
-      setLoading(false);
+      if (retryCount === 0 || !error) {
+        setLoading(false);
+      }
     }
   };
 
@@ -264,49 +317,6 @@ export const Dashboard: React.FC = () => {
     };
   };
 
-  const computeStoryMetrics = (list: Reading[], sumInfo: any) => {
-    const todayStr = dayjs().format('YYYY-MM-DD');
-    const yesterdayStr = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
-    
-    const todayLogs = list.filter(r => r.readingDate === todayStr);
-    const yesterdayLogs = list.filter(r => r.readingDate === yesterdayStr);
-
-    const todayAverage = todayLogs.length > 0 ? todayLogs.reduce((sum, r) => sum + r.bloodSugar, 0) / todayLogs.length : null;
-    const yesterdayAverage = yesterdayLogs.length > 0 ? yesterdayLogs.reduce((sum, r) => sum + r.bloodSugar, 0) / yesterdayLogs.length : null;
-    
-    setTodayVal(todayAverage ? Math.round(todayAverage) : (list[0] ? list[0].bloodSugar : null));
-    setYesterdayVal(yesterdayAverage ? Math.round(yesterdayAverage) : (list[1] ? list[1].bloodSugar : null));
-    setActualTodayAvg(todayAverage ? Math.round(todayAverage) : null);
-    setActualYesterdayAvg(yesterdayAverage ? Math.round(yesterdayAverage) : null);
-
-    const w0Start = dayjs().subtract(7, 'day').format('YYYY-MM-DD');
-    const thisWeekLogs = list.filter(r => r.readingDate >= w0Start);
-    const w0Avg = thisWeekLogs.length > 0 ? thisWeekLogs.reduce((sum, r) => sum + r.bloodSugar, 0) / thisWeekLogs.length : 0;
-    setThisWeekAvg(Math.round(w0Avg));
-
-    const m0Start = dayjs().subtract(30, 'day').format('YYYY-MM-DD');
-    const m1Start = dayjs().subtract(60, 'day').format('YYYY-MM-DD');
-    const thisMonthLogs = list.filter(r => r.readingDate >= m0Start);
-    const lastMonthLogs = list.filter(r => r.readingDate >= m1Start && r.readingDate < m0Start);
-
-    const m0Avg = thisMonthLogs.length > 0 ? thisMonthLogs.reduce((sum, r) => sum + r.bloodSugar, 0) / thisMonthLogs.length : 0;
-    const m1Avg = lastMonthLogs.length > 0 ? lastMonthLogs.reduce((sum, r) => sum + r.bloodSugar, 0) / lastMonthLogs.length : 0;
-
-    setThisMonthAvg(Math.round(m0Avg));
-    setLastMonthAvg(Math.round(m1Avg));
-
-    // Dynamic sugar food recommendations
-    const latestGlucose = sumInfo.latestReading?.bloodSugar || 120;
-    const plan = getAdjustedFoodPlan(
-      latestGlucose,
-      targetMin,
-      targetMax,
-      i18n.language
-    );
-    setFoodPlan(plan);
-    setLatestGlucoseRef(latestGlucose);
-  };
-
   const getGreeting = () => {
     const hour = new Date().getHours();
     const isTa = i18n.language.startsWith('ta');
@@ -335,20 +345,10 @@ export const Dashboard: React.FC = () => {
     });
   };
 
-  if (loading) {
-    return (
-      <div className="max-w-md mx-auto px-4 py-12 space-y-6">
-        <div className="h-16 w-3/4 bg-slate-200 dark:bg-slate-800 rounded-2xl animate-pulse"></div>
-        <div className="h-48 bg-slate-200 dark:bg-slate-800 rounded-2xl animate-pulse"></div>
-        <div className="h-64 bg-slate-200 dark:bg-slate-800 rounded-2xl animate-pulse"></div>
-      </div>
-    );
-  }
-
+  const isTamil = i18n.language.startsWith('ta');
   const latestSugar = summary?.latestReading?.bloodSugar || 0;
   const statusDetails = getGlucoseStatusDetails(latestSugar);
   const diffVal = todayVal && yesterdayVal ? todayVal - yesterdayVal : 0;
-  const isTamil = i18n.language.startsWith('ta');
 
   // Adherence evaluation feedback words
   const getAdherenceFeedback = (rate: number) => {
@@ -360,16 +360,45 @@ export const Dashboard: React.FC = () => {
   return (
     <div className="max-w-md mx-auto px-4 py-6 space-y-6 animate-fade-in pb-24 font-sans">
 
+      {/* 📡 Offline Alert Banner */}
+      {isOffline && (
+        <div className="p-4 bg-amber-50 dark:bg-amber-955/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900 rounded-3xl font-extrabold text-xs flex items-center gap-2 shadow-xs">
+          <span className="text-base">📡</span>
+          <span>{isTamil ? "ஆஃப்லைனில் உள்ளீர்கள். இணைய இணைப்பைச் சரிபார்க்கவும்." : "You are offline. Please check your internet connection."}</span>
+        </div>
+      )}
+
+      {/* ❌ API Error Box with Retry */}
+      {error && !loading && (
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border border-rose-100 dark:border-rose-955/20 text-center space-y-4">
+          <span className="text-2xl block">⚠️</span>
+          <h4 className="font-extrabold text-sm text-slate-850 dark:text-white">
+            {isTamil ? "விவரங்களை ஏற்ற முடியவில்லை" : "Could not load dashboard"}
+          </h4>
+          <p className="text-[10px] text-slate-400 font-semibold">
+            {isTamil ? "இணைய இணைப்பு அல்லது சேவையக பிழை." : "A connection or server error occurred."}
+          </p>
+          <button
+            onClick={() => fetchDashboardData(0)}
+            className="py-2.5 px-5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-bold shadow-md text-xs min-h-[36px] transition-all active:scale-[0.98]"
+          >
+            {isTamil ? "மீண்டும் முயலவும்" : "Retry Now"}
+          </button>
+        </div>
+      )}
+
       {/* ===================================================== */}
       {/* 🔔 GLOBAL OVERDUE REMINDER BANNER (Both Views)        */}
       {/* ===================================================== */}
-      {isOverdue && monProgress && monProgress.completionPercent < 100 && (
-        <div className="p-4 bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900 rounded-3xl font-extrabold text-xs flex items-center gap-2 animate-pulse shadow-xs">
-          <span className="text-base">🔔</span>
-          <span>
-            {isTamil ? "சர்க்கரை பரிசோதனை நேரம்! தயவுசெய்து இன்று அட்டவணைப்படுத்தப்பட்ட சர்க்கரை அளவுகளைப் பதிவு செய்யவும்." : "Time for your sugar test. Please record today's scheduled sugar readings."}
-          </span>
-        </div>
+      {!loading && !error && isOverdue && monProgress && monProgress.completionPercent < 100 && (
+        <ErrorBoundary name="Overdue Banner" isTamil={isTamil}>
+          <div className="p-4 bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900 rounded-3xl font-extrabold text-xs flex items-center gap-2 animate-pulse shadow-xs">
+            <span className="text-base">🔔</span>
+            <span>
+              {isTamil ? "சர்க்கரை பரிசோதனை நேரம்! தயவுசெய்து இன்று அட்டவணைப்படுத்தப்பட்ட சர்க்கரை அளவுகளைப் பதிவு செய்யவும்." : "Time for your sugar test. Please record today's scheduled sugar readings."}
+            </span>
+          </div>
+        </ErrorBoundary>
       )}
 
       {/* ==================================================== */}
@@ -378,8 +407,9 @@ export const Dashboard: React.FC = () => {
       {familyView === 'amma' && (
         <div className="space-y-6">
 
-          {/* 🌸 Redesigned Amma View Health Companion Card */}
-          <div className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-slate-900 dark:to-emerald-955/20 p-6 rounded-3xl border border-emerald-100/40 dark:border-slate-800 shadow-sm space-y-4">
+          {/* 🌸 Amma View Health Companion Card */}
+          <ErrorBoundary name="Companion Card" isTamil={isTamil}>
+            <div className="bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-slate-900 dark:to-emerald-955/20 p-6 rounded-3xl border border-emerald-100/40 dark:border-slate-800 shadow-sm space-y-4">
             
             {/* Header: Greeting & Date */}
             <div className="text-center space-y-1">
@@ -394,7 +424,13 @@ export const Dashboard: React.FC = () => {
             <div className="border-t border-emerald-150/40 dark:border-slate-800 my-3"></div>
 
             {/* Main Section: TODAY'S SUGAR CHECK */}
+            {loading ? (
+              <div className="bg-white dark:bg-slate-850 p-5 rounded-2xl border border-emerald-100/30 dark:border-slate-800 h-40 flex items-center justify-center animate-pulse">
+                <p className="text-[10px] font-bold text-slate-400">{isTamil ? "அட்டவணை ஏற்றப்படுகிறது..." : "Loading checklist..."}</p>
+              </div>
+            ) : (
             <div className="bg-white dark:bg-slate-850 p-5 rounded-2xl border border-emerald-100/30 dark:border-slate-800 space-y-3.5 shadow-xxs">
+
               
               {/* Scenario 1: No test scheduled today */}
               {monProgress && !monProgress.isScheduledToday && (
@@ -527,6 +563,7 @@ export const Dashboard: React.FC = () => {
               )}
 
             </div>
+            )}
 
             <div className="border-t border-emerald-150/40 dark:border-slate-800 my-3"></div>
 
@@ -553,9 +590,13 @@ export const Dashboard: React.FC = () => {
             </div>
 
           </div>
+          </ErrorBoundary>
 
           {/* 🟢 Today's Sugar Card */}
-          {hasData && summary?.latestReading ? (
+          <ErrorBoundary name="Today's Sugar" isTamil={isTamil}>
+            {loading ? (
+              <CardSkeleton isTamil={isTamil} />
+            ) : hasData && summary?.latestReading ? (
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 text-center space-y-3">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">{isTamil ? 'இன்றைய சர்க்கரை அளவு' : "Today's Sugar"}</span>
               
@@ -583,10 +624,14 @@ export const Dashboard: React.FC = () => {
               <p className="text-xs text-slate-400">{t('dashboard.noReadings')}</p>
             </div>
           )}
+          </ErrorBoundary>
 
           
           {/* ❤️ How Are You Doing? (Amma View Only) */}
-          {hasData && (
+          <ErrorBoundary name="How Are You Doing" isTamil={isTamil}>
+            {loading ? (
+              <CardSkeleton isTamil={isTamil} />
+            ) : hasData ? (
             <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-850 space-y-4">
               <h3 className="text-base font-heading font-extrabold text-slate-800 dark:text-white flex items-center gap-2">
                 <span>❤️</span>
@@ -727,10 +772,14 @@ export const Dashboard: React.FC = () => {
               </div>
 
             </div>
-          )}
+            ) : null}
+          </ErrorBoundary>
 
           {/* 🍛 Today's Healthy Food Plan */}
-          {foodPlan && (
+          <ErrorBoundary name="Food Plan" isTamil={isTamil}>
+            {loading ? (
+              <CardSkeleton isTamil={isTamil} />
+            ) : foodPlan ? (
             <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-850 space-y-4">
               <h3 className="text-base font-heading font-extrabold text-slate-850 dark:text-white flex items-center gap-2 border-b pb-2">
                 <span>🍛</span>
@@ -759,10 +808,14 @@ export const Dashboard: React.FC = () => {
                 </p>
               </div>
             </div>
-          )}
+            ) : null}
+          </ErrorBoundary>
 
           {/* 💊 Medicine Reminder */}
-          {reminders.length > 0 && (
+          <ErrorBoundary name="Medicine Reminders" isTamil={isTamil}>
+            {loading ? (
+              <CardSkeleton isTamil={isTamil} />
+            ) : reminders.length > 0 ? (
             <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-850 space-y-4">
               <h3 className="text-base font-heading font-extrabold text-slate-805 dark:text-white flex items-center gap-2">
                 <span>💊</span>
@@ -783,7 +836,8 @@ export const Dashboard: React.FC = () => {
                 ))}
               </div>
             </div>
-          )}
+            ) : null}
+          </ErrorBoundary>
 
           {/* 🚶 Today's Activity & 😊 Health Tip */}
           <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-855 space-y-4">
@@ -815,14 +869,18 @@ export const Dashboard: React.FC = () => {
                 </div>
               )}
             </div>
-          </div>
+            </div>
 
           {/* 📖 Recent Sugar Records */}
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-850 space-y-4">
-            <div className="flex justify-between items-center border-b pb-2">
-              <h3 className="text-base font-heading font-extrabold text-slate-800 dark:text-white">{t('dashboard.recentLogs')}</h3>
-              <Link to="/history" className="text-xs font-bold text-emerald-500 flex items-center gap-0.5">Show all <ChevronRight className="w-4 h-4" /></Link>
-            </div>
+          <ErrorBoundary name="Recent Records" isTamil={isTamil}>
+            {loading ? (
+              <CardSkeleton isTamil={isTamil} />
+            ) : (
+            <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-850 space-y-4">
+              <div className="flex justify-between items-center border-b pb-2">
+                <h3 className="text-base font-heading font-extrabold text-slate-800 dark:text-white">{t('dashboard.recentLogs')}</h3>
+                <Link to="/history" className="text-xs font-bold text-emerald-500 flex items-center gap-0.5">Show all <ChevronRight className="w-4 h-4" /></Link>
+              </div>
 
             <div className="divide-y divide-slate-100 dark:divide-slate-850">
               {allReadings.slice(0, 5).map((r) => {
@@ -841,7 +899,9 @@ export const Dashboard: React.FC = () => {
                 );
               })}
             </div>
-          </div>
+            </div>
+            )}
+          </ErrorBoundary>
 
         </div>
       )}
@@ -867,39 +927,52 @@ export const Dashboard: React.FC = () => {
           </div>
 
           {/* 📅 Caregiver Monitoring Plan Adherence Tracker Card */}
-          {monProgress && (
-            <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-4">
-              <h3 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5 border-b pb-2">
-                <Calendar className="w-4.5 h-4.5 text-emerald-500" />
-                <span>Monitoring Plan Adherence</span>
-              </h3>
+          <ErrorBoundary name="Monitoring Adherence" isTamil={isTamil}>
+            {loading ? (
+              <CardSkeleton isTamil={isTamil} />
+            ) : monProgress ? (
+              <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-4">
+                <h3 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5 border-b pb-2">
+                  <Calendar className="w-4.5 h-4.5 text-emerald-500" />
+                  <span>Monitoring Plan Adherence</span>
+                </h3>
 
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-3 bg-slate-50 dark:bg-slate-850 border rounded-xl text-center">
+                    <span className="text-[9px] font-bold text-slate-450 block mb-0.5">Completion This Month</span>
+                    <span className="text-lg font-black text-slate-800 dark:text-white block">
+                      {monProgress.adherence.completedDays} / {monProgress.adherence.totalScheduledDays}
+                    </span>
+                  </div>
+                  
+                  <div className="p-3 bg-slate-50 dark:bg-slate-850 border rounded-xl text-center">
+                    <span className="text-[9px] font-bold text-slate-450 block mb-0.5">Adherence Rate</span>
+                    <span className="text-lg font-black text-emerald-650 block">
+                      {monProgress.adherence.rate}%
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-xxs font-bold text-slate-450 pt-1">
+                  <span className="uppercase">Plan consistency status:</span>
+                  <span className={`px-2 py-0.5 rounded ${monProgress.adherence.rate >= 80 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                    {getAdherenceFeedback(monProgress.adherence.rate)}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+          </ErrorBoundary>
+
+          <ErrorBoundary name="Caregiver Metrics" isTamil={isTamil}>
+            {loading ? (
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-3 bg-slate-50 dark:bg-slate-850 border rounded-xl text-center">
-                  <span className="text-[9px] font-bold text-slate-450 block mb-0.5">Completion This Month</span>
-                  <span className="text-lg font-black text-slate-800 dark:text-white block">
-                    {monProgress.adherence.completedDays} / {monProgress.adherence.totalScheduledDays}
-                  </span>
-                </div>
-                
-                <div className="p-3 bg-slate-50 dark:bg-slate-850 border rounded-xl text-center">
-                  <span className="text-[9px] font-bold text-slate-450 block mb-0.5">Adherence Rate</span>
-                  <span className="text-lg font-black text-emerald-650 block">
-                    {monProgress.adherence.rate}%
-                  </span>
-                </div>
+                <CardSkeleton isTamil={isTamil} />
+                <CardSkeleton isTamil={isTamil} />
+                <CardSkeleton isTamil={isTamil} />
+                <CardSkeleton isTamil={isTamil} />
               </div>
-
-              <div className="flex items-center justify-between text-xxs font-bold text-slate-450 pt-1">
-                <span className="uppercase">Plan consistency status:</span>
-                <span className={`px-2 py-0.5 rounded ${monProgress.adherence.rate >= 80 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                  {getAdherenceFeedback(monProgress.adherence.rate)}
-                </span>
-              </div>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4">
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
             <div className="bg-white dark:bg-slate-900 p-4.5 rounded-2xl border border-slate-100 dark:border-slate-850">
               <span className="text-[10px] font-bold text-slate-400 uppercase">Latest Glucose</span>
               <div className="text-xl font-heading font-black text-slate-805 dark:text-white mt-1">
@@ -932,31 +1005,44 @@ export const Dashboard: React.FC = () => {
               <span className="text-[10px] text-slate-400 mt-1 block">3-Month average estimate</span>
             </div>
           </div>
-
-          {weeklyChart.length > 0 && (
-            <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-4">
-              <h3 className="text-xs font-bold text-slate-850 dark:text-white">Recent Checks Trend (mg/dL)</h3>
-              <div className="h-56 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={weeklyChart} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorSugarDashboardCaregiver" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.15}/>
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" className="dark:stroke-slate-850" />
-                    <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} />
-                    <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} />
-                    <Tooltip />
-                    <Area type="monotone" dataKey="sugar" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorSugarDashboardCaregiver)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
           )}
+          </ErrorBoundary>
 
-          <div className="grid grid-cols-1 gap-4">
+          <ErrorBoundary name="Weekly Chart" isTamil={isTamil}>
+            {loading ? (
+              <CardSkeleton isTamil={isTamil} />
+            ) : weeklyChart.length > 0 ? (
+              <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm space-y-4">
+                <h3 className="text-xs font-bold text-slate-850 dark:text-white">Recent Checks Trend (mg/dL)</h3>
+                <div className="h-56 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={weeklyChart} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorSugarDashboardCaregiver" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.15}/>
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" className="dark:stroke-slate-850" />
+                      <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                      <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                      <Tooltip />
+                      <Area type="monotone" dataKey="sugar" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorSugarDashboardCaregiver)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            ) : null}
+          </ErrorBoundary>
+
+          <ErrorBoundary name="Targets & Categories" isTamil={isTamil}>
+            {loading ? (
+              <div className="grid grid-cols-1 gap-4">
+                <CardSkeleton isTamil={isTamil} />
+                <CardSkeleton isTamil={isTamil} />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4">
             <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 shadow-sm space-y-4">
               <h4 className="font-bold text-xs text-slate-800 dark:text-white flex items-center gap-1.5"><Activity className="w-4 h-4 text-emerald-500" /> Reading types and targets</h4>
               <div className="grid grid-cols-2 gap-3 text-xs">
@@ -1000,7 +1086,9 @@ export const Dashboard: React.FC = () => {
                 </div>
               </div>
             </div>
-          </div>
+            </div>
+            )}
+          </ErrorBoundary>
 
         </div>
       )}

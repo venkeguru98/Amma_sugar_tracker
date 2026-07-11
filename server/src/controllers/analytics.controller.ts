@@ -2,6 +2,8 @@ import { Response } from 'express';
 import prisma from '../db';
 import { AuthenticatedRequest } from '../middlewares/auth.middleware';
 import dayjs from 'dayjs';
+import { getProgressData } from './monitoring.controller';
+
 
 // HbA1c estimation using ADAG formula: HbA1c = (Avg Glucose + 46.7) / 28.7
 const estimateHbA1c = (avgGlucose: number): number => {
@@ -99,11 +101,23 @@ export const getDashboardAnalytics = async (req: AuthenticatedRequest, res: Resp
     const targetMin = user.targetMin;
     const targetMax = user.targetMax;
 
+    // Capture client date or fall back to server's date
+    const todayStr = req.query.clientDate ? String(req.query.clientDate) : dayjs().format('YYYY-MM-DD');
+
     // Fetch all sugar readings
     const allReadings = await prisma.sugarReading.findMany({
       where: { userId: req.user.id },
       orderBy: [{ readingDate: 'desc' }, { readingTime: 'desc' }]
     });
+
+    // Fetch reminders and monitoring progress in parallel to speed up database queries
+    const [reminders, monitoringProgress] = await Promise.all([
+      prisma.medicineReminder.findMany({
+        where: { userId: req.user.id, isActive: true },
+        orderBy: { time: 'asc' }
+      }),
+      getProgressData(req.user.id, todayStr)
+    ]);
 
     if (allReadings.length === 0) {
       return res.json({
@@ -122,28 +136,28 @@ export const getDashboardAnalytics = async (req: AuthenticatedRequest, res: Resp
           latestReading: null,
           totalReadings: 0,
           streak: 0,
-          categories: { green: 0, yellow: 0, orange: 0, red: 0 }
+          categories: { green: 0, yellow: 0, orange: 0, red: 0 },
+          lastMonthAvg: 0,
+          todayVal: null,
+          yesterdayVal: null,
+          actualTodayAvg: null,
+          actualYesterdayAvg: null
         },
-        charts: { daily: [], weekly: [], monthly: [], yearly: [] }
+        charts: { daily: [], weekly: [], monthly: [], yearly: [] },
+        recentReadings: [],
+        reminders,
+        monitoringProgress
       });
     }
 
-    const todayStr = new Date().toISOString().split('T')[0];
-    const yesterdayObj = new Date();
-    yesterdayObj.setDate(yesterdayObj.getDate() - 1);
-    const yesterdayStr = yesterdayObj.toISOString().split('T')[0];
-
-    const weekAgoObj = new Date();
-    weekAgoObj.setDate(weekAgoObj.getDate() - 7);
-    const weekAgoStr = weekAgoObj.toISOString().split('T')[0];
-
-    const monthAgoObj = new Date();
-    monthAgoObj.setMonth(monthAgoObj.getMonth() - 1);
-    const monthAgoStr = monthAgoObj.toISOString().split('T')[0];
-
-    const yearAgoObj = new Date();
-    yearAgoObj.setFullYear(yearAgoObj.getFullYear() - 1);
-    const yearAgoStr = yearAgoObj.toISOString().split('T')[0];
+    const yesterdayStr = dayjs(todayStr).subtract(1, 'day').format('YYYY-MM-DD');
+    const weekAgoStr = dayjs(todayStr).subtract(7, 'day').format('YYYY-MM-DD');
+    const monthAgoStr = dayjs(todayStr).subtract(30, 'day').format('YYYY-MM-DD');
+    const yearAgoStr = dayjs(todayStr).subtract(365, 'day').format('YYYY-MM-DD');
+    
+    // For comparing with last month (days 31 to 60)
+    const m0Start = dayjs(todayStr).subtract(30, 'day').format('YYYY-MM-DD');
+    const m1Start = dayjs(todayStr).subtract(60, 'day').format('YYYY-MM-DD');
 
     // Sugar stats calculations
     let todaySum = 0, todayCount = 0;
@@ -151,6 +165,7 @@ export const getDashboardAnalytics = async (req: AuthenticatedRequest, res: Resp
     let weeklySum = 0, weeklyCount = 0;
     let monthlySum = 0, monthlyCount = 0;
     let yearlySum = 0, yearlyCount = 0;
+    let lastMonthSum = 0, lastMonthCount = 0;
     let fastingSum = 0, fastingCount = 0;
     let postMealSum = 0, postMealCount = 0;
 
@@ -199,9 +214,13 @@ export const getDashboardAnalytics = async (req: AuthenticatedRequest, res: Resp
         yearlyCount++;
       }
 
+      // Comparison range: days 31 to 60
+      if (dateStr >= m1Start && dateStr < m0Start) {
+        lastMonthSum += val;
+        lastMonthCount++;
+      }
+
       // Fasting vs Post meal
-      // Fasting types: fasting, before_breakfast, before_lunch, before_dinner
-      // Post meal types: after_breakfast, after_lunch, after_dinner, bedtime, random
       const isFasting = ['fasting', 'before_breakfast', 'before_lunch', 'before_dinner'].includes(reading.readingType);
       if (isFasting) {
         fastingSum += val;
@@ -223,7 +242,7 @@ export const getDashboardAnalytics = async (req: AuthenticatedRequest, res: Resp
     const overallAvg = allSugarValues.reduce((a, b) => a + b, 0) / totalReadings;
 
     // Charts Data
-    // Daily trend: last 7 readings chronologically
+    // Daily trend: last 10 readings chronologically
     const dailyChart = [...allReadings]
       .slice(0, 10)
       .reverse()
@@ -252,8 +271,7 @@ export const getDashboardAnalytics = async (req: AuthenticatedRequest, res: Resp
         };
       });
 
-    // Monthly trend: average sugar per week or month-to-month
-    // Let's do month-by-month averages for the past 6 months
+    // Monthly trend: average sugar per month for the past 6 months
     const monthGroups: { [month: string]: number[] } = {};
     allReadings.forEach((r) => {
       const monthKey = r.readingDate.substring(0, 7); // YYYY-MM
@@ -275,6 +293,17 @@ export const getDashboardAnalytics = async (req: AuthenticatedRequest, res: Resp
         };
       });
 
+    // Pre-calculate story metrics values to offload the client browser
+    const todayAverage = todayCount > 0 ? todaySum / todayCount : null;
+    const yesterdayAverage = yesterdayCount > 0 ? yesterdaySum / yesterdayCount : null;
+    const latestGlucose = allReadings[0] ? allReadings[0].bloodSugar : 120;
+
+    const todayVal = todayAverage !== null ? Math.round(todayAverage) : (allReadings[0] ? allReadings[0].bloodSugar : null);
+    const yesterdayVal = yesterdayAverage !== null ? Math.round(yesterdayAverage) : (allReadings[1] ? allReadings[1].bloodSugar : null);
+    const actualTodayAvg = todayAverage !== null ? Math.round(todayAverage) : null;
+    const actualYesterdayAvg = yesterdayAverage !== null ? Math.round(yesterdayAverage) : null;
+    const lastMonthAvg = lastMonthCount > 0 ? parseFloat((lastMonthSum / lastMonthCount).toFixed(1)) : 0;
+
     res.json({
       hasData: true,
       summary: {
@@ -291,7 +320,12 @@ export const getDashboardAnalytics = async (req: AuthenticatedRequest, res: Resp
         latestReading: allReadings[0],
         totalReadings,
         streak: calculateStreak(allReadings),
-        categories
+        categories,
+        lastMonthAvg,
+        todayVal,
+        yesterdayVal,
+        actualTodayAvg,
+        actualYesterdayAvg
       },
       timeOfDayAverages: {
         morning: timeOfDayCount.morning > 0 ? parseFloat((timeOfDaySum.morning / timeOfDayCount.morning).toFixed(1)) : 0,
@@ -303,7 +337,10 @@ export const getDashboardAnalytics = async (req: AuthenticatedRequest, res: Resp
         daily: dailyChart,
         weekly: weeklyChart,
         monthly: monthlyChart
-      }
+      },
+      recentReadings: allReadings.slice(0, 10),
+      reminders,
+      monitoringProgress
     });
   } catch (error: any) {
     console.error('Get dashboard analytics error:', error);

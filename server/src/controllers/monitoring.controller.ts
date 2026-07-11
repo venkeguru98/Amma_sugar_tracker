@@ -101,123 +101,129 @@ const isDateScheduled = (date: dayjs.Dayjs, plan: any): boolean => {
   return false;
 };
 
+export const getProgressData = async (userId: string, clientDate?: string) => {
+  let plan = await prisma.monitoringPlan.findUnique({
+    where: { userId }
+  });
+
+  if (!plan) {
+    plan = DEFAULT_PLAN as any;
+  }
+
+  // Capture the client's current local date to prevent timezone discrepancy
+  const todayStr = clientDate ? String(clientDate) : dayjs().format('YYYY-MM-DD');
+  const today = dayjs(todayStr);
+
+  // 1. Is today scheduled?
+  const isScheduledToday = isDateScheduled(today, plan);
+
+  // 2. Fetch today's readings
+  const todayReadings = await prisma.sugarReading.findMany({
+    where: {
+      userId,
+      readingDate: todayStr
+    }
+  });
+
+  const requiredTypes = plan!.readingTypes.split(',').map(t => t.trim()).filter(Boolean);
+  const checklist = requiredTypes.map((type) => {
+    const reading = todayReadings.find(r => r.readingType === type);
+    return {
+      type,
+      checked: !!reading,
+      sugar: reading ? reading.bloodSugar : null,
+      time: reading ? reading.readingTime : null
+    };
+  });
+
+  const checkedCount = checklist.filter(c => c.checked).length;
+  const totalCount = checklist.length;
+  const completionPercent = totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0;
+
+  // 3. Find next scheduled day label (English & Tamil)
+  let nextScheduledDate = '';
+  let nextScheduledDayEn = '';
+  let nextScheduledDayTa = '';
+  
+  if (plan!.isActive) {
+    let temp = today.add(1, 'day');
+    for (let i = 0; i < 7; i++) {
+      if (isDateScheduled(temp, plan)) {
+        nextScheduledDate = temp.format('YYYY-MM-DD');
+        const dayIndex = temp.day();
+        
+        const weekdayNamesEn = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const weekdayNamesTa = ['ஞாயிறு', 'திங்கள்', 'செவ்வாய்', 'புதன்', 'வியாழன்', 'வெள்ளி', 'சனி'];
+        
+        nextScheduledDayEn = weekdayNamesEn[dayIndex];
+        nextScheduledDayTa = weekdayNamesTa[dayIndex];
+        break;
+      }
+      temp = temp.add(1, 'day');
+    }
+  }
+
+  // 4. Calculate Past 30 Days Adherence
+  const pastDays: dayjs.Dayjs[] = [];
+  for (let i = 30; i >= 1; i--) {
+    const d = today.subtract(i, 'day');
+    if (isDateScheduled(d, plan)) {
+      pastDays.push(d);
+    }
+  }
+
+  const monthAgoStr = today.subtract(30, 'day').format('YYYY-MM-DD');
+  const pastReadings = await prisma.sugarReading.findMany({
+    where: {
+      userId,
+      readingDate: { gte: monthAgoStr, lt: todayStr }
+    }
+  });
+
+  let completedDays = 0;
+  const totalScheduledDays = pastDays.length;
+
+  pastDays.forEach((day) => {
+    const dStr = day.format('YYYY-MM-DD');
+    const dayLogs = pastReadings.filter(r => r.readingDate === dStr);
+    const isDayComplete = requiredTypes.every((type) => {
+      return dayLogs.some(r => r.readingType === type);
+    });
+    if (isDayComplete) completedDays++;
+  });
+
+  const adherenceRate = totalScheduledDays > 0 ? Math.round((completedDays / totalScheduledDays) * 100) : 100;
+
+  return {
+    isScheduledToday,
+    checklist,
+    checkedCount,
+    totalCount,
+    completionPercent,
+    nextScheduled: {
+      date: nextScheduledDate,
+      dayEn: nextScheduledDayEn,
+      dayTa: nextScheduledDayTa
+    },
+    adherence: {
+      completedDays,
+      totalScheduledDays,
+      rate: adherenceRate
+    },
+    reminderTime: plan!.reminderTime,
+    isActive: plan!.isActive
+  };
+};
+
 export const getProgress = async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
-
-    let plan = await prisma.monitoringPlan.findUnique({
-      where: { userId: req.user.id }
-    });
-
-    if (!plan) {
-      plan = DEFAULT_PLAN as any;
-    }
-
-    // Capture the client's current local date to prevent timezone discrepancy
-    const todayStr = req.query.clientDate ? String(req.query.clientDate) : dayjs().format('YYYY-MM-DD');
-    const today = dayjs(todayStr);
-
-    // 1. Is today scheduled?
-    const isScheduledToday = isDateScheduled(today, plan);
-
-    // 2. Fetch today's readings
-    const todayReadings = await prisma.sugarReading.findMany({
-      where: {
-        userId: req.user.id,
-        readingDate: todayStr
-      }
-    });
-
-    const requiredTypes = plan!.readingTypes.split(',').map(t => t.trim()).filter(Boolean);
-    const checklist = requiredTypes.map((type) => {
-      const reading = todayReadings.find(r => r.readingType === type);
-      return {
-        type,
-        checked: !!reading,
-        sugar: reading ? reading.bloodSugar : null,
-        time: reading ? reading.readingTime : null
-      };
-    });
-
-    const checkedCount = checklist.filter(c => c.checked).length;
-    const totalCount = checklist.length;
-    const completionPercent = totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0;
-
-    // 3. Find next scheduled day label (English & Tamil)
-    let nextScheduledDate = '';
-    let nextScheduledDayEn = '';
-    let nextScheduledDayTa = '';
-    
-    if (plan!.isActive) {
-      let temp = today.add(1, 'day');
-      for (let i = 0; i < 7; i++) {
-        if (isDateScheduled(temp, plan)) {
-          nextScheduledDate = temp.format('YYYY-MM-DD');
-          const dayIndex = temp.day();
-          
-          const weekdayNamesEn = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-          const weekdayNamesTa = ['ஞாயிறு', 'திங்கள்', 'செவ்வாய்', 'புதன்', 'வியாழன்', 'வெள்ளி', 'சனி'];
-          
-          nextScheduledDayEn = weekdayNamesEn[dayIndex];
-          nextScheduledDayTa = weekdayNamesTa[dayIndex];
-          break;
-        }
-        temp = temp.add(1, 'day');
-      }
-    }
-
-    // 4. Calculate Past 30 Days Adherence
-    const pastDays: dayjs.Dayjs[] = [];
-    for (let i = 30; i >= 1; i--) {
-      const d = today.subtract(i, 'day');
-      if (isDateScheduled(d, plan)) {
-        pastDays.push(d);
-      }
-    }
-
-    const monthAgoStr = today.subtract(30, 'day').format('YYYY-MM-DD');
-    const pastReadings = await prisma.sugarReading.findMany({
-      where: {
-        userId: req.user.id,
-        readingDate: { gte: monthAgoStr, lt: todayStr }
-      }
-    });
-
-    let completedDays = 0;
-    const totalScheduledDays = pastDays.length;
-
-    pastDays.forEach((day) => {
-      const dStr = day.format('YYYY-MM-DD');
-      const dayLogs = pastReadings.filter(r => r.readingDate === dStr);
-      const isDayComplete = requiredTypes.every((type) => {
-        return dayLogs.some(r => r.readingType === type);
-      });
-      if (isDayComplete) completedDays++;
-    });
-
-    const adherenceRate = totalScheduledDays > 0 ? Math.round((completedDays / totalScheduledDays) * 100) : 100;
-
-    res.json({
-      isScheduledToday,
-      checklist,
-      checkedCount,
-      totalCount,
-      completionPercent,
-      nextScheduled: {
-        date: nextScheduledDate,
-        dayEn: nextScheduledDayEn,
-        dayTa: nextScheduledDayTa
-      },
-      adherence: {
-        completedDays,
-        totalScheduledDays,
-        rate: adherenceRate
-      },
-      reminderTime: plan!.reminderTime,
-      isActive: plan!.isActive
-    });
+    const clientDate = req.query.clientDate ? String(req.query.clientDate) : undefined;
+    const progress = await getProgressData(req.user.id, clientDate);
+    res.json(progress);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
+
