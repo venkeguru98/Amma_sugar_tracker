@@ -454,9 +454,13 @@ export const getDeepAnalytics = async (req: AuthenticatedRequest, res: Response)
 
     // Grouping by date for heatmaps
     const dateGroups: { [date: string]: number[] } = {};
+    const dateReadings: { [date: string]: any[] } = {};
     readings.forEach((r) => {
       if (!dateGroups[r.readingDate]) dateGroups[r.readingDate] = [];
       dateGroups[r.readingDate].push(r.bloodSugar);
+
+      if (!dateReadings[r.readingDate]) dateReadings[r.readingDate] = [];
+      dateReadings[r.readingDate].push(r);
     });
 
     const daysRecorded = Object.keys(dateGroups).length;
@@ -472,7 +476,7 @@ export const getDeepAnalytics = async (req: AuthenticatedRequest, res: Response)
 
     const todData = { morning: [] as number[], afternoon: [] as number[], evening: [] as number[], night: [] as number[] };
     const monthAverages: { [month: string]: { sum: number; count: number } } = {};
-    const heatmapData: { date: string; count: number; avgSugar: number }[] = [];
+    const heatmapData: { date: string; count: number; avgSugar: number; readings?: any[] }[] = [];
     const rollingData: { date: string; time: string; value: number; movingAvg: number }[] = [];
     const windowSize = 5;
 
@@ -514,7 +518,8 @@ export const getDeepAnalytics = async (req: AuthenticatedRequest, res: Response)
       heatmapData.push({
         date,
         count: vals.length,
-        avgSugar: parseFloat(avg.toFixed(1))
+        avgSugar: parseFloat(avg.toFixed(1)),
+        readings: dateReadings[date] || []
       });
     });
 

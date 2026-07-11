@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronLeft, Calendar as CalendarIcon, Clock, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
+import { useAuth } from '../contexts/AuthContext';
 
 interface DailyLog {
   date: string;
@@ -15,6 +16,44 @@ interface DailyLog {
 export const CalendarView: React.FC = () => {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  const targetMin = user?.targetMin ?? 70;
+  const targetMax = user?.targetMax ?? 140;
+
+  const getGlucoseStatusDetails = (val: number) => {
+    const isTa = i18n.language.startsWith('ta');
+    if (val < targetMin) {
+      return { 
+        text: isTa ? "குறைவு" : "Low", 
+        dot: "🔴", 
+        color: "text-rose-500", 
+        bg: "bg-rose-50 border-rose-200 dark:bg-rose-955/20 dark:border-rose-900" 
+      };
+    }
+    if (val <= targetMax) {
+      return { 
+        text: isTa ? "இயல்பு" : "Normal", 
+        dot: "🟢", 
+        color: "text-emerald-500", 
+        bg: "bg-emerald-50 border-emerald-200 dark:bg-emerald-955/20 dark:border-emerald-900" 
+      };
+    }
+    if (val <= targetMax + 40) {
+      return { 
+        text: isTa ? "சற்று அதிகம்" : "Slightly High", 
+        dot: "🟡", 
+        color: "text-amber-500", 
+        bg: "bg-amber-50 border-amber-200 dark:bg-amber-955/20 dark:border-amber-900" 
+      };
+    }
+    return { 
+      text: isTa ? "அதிகம்" : "High", 
+      dot: "🔴", 
+      color: "text-rose-500", 
+      bg: "bg-rose-50 border-rose-200 dark:bg-rose-955/20 dark:border-rose-900" 
+    };
+  };
 
   const [currentDate, setCurrentDate] = useState(() => dayjs());
   const [logsMap, setLogsMap] = useState<Record<string, DailyLog>>({});
@@ -202,28 +241,64 @@ export const CalendarView: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="flex justify-between items-center text-xs font-bold text-slate-450 border-b pb-2">
+              <div className="flex justify-between items-center text-xs font-bold text-slate-455 border-b pb-2">
                 <span>{formatLocalDate(selectedDate)}</span>
                 <span className="text-emerald-600">Avg: {Math.round(selectedDayLog.avgSugar)} mg/dL</span>
               </div>
 
               <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
-                {selectedDayLog.readings.map((r, i) => (
-                  <div key={i} className="p-3 bg-slate-50 dark:bg-slate-850 border rounded-xl space-y-1">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xxs uppercase tracking-wider font-bold bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded-lg text-slate-705">
-                        {t(`reading.types.${r.readingType}`, { defaultValue: r.readingType })}
-                      </span>
-                      <span className="text-xs text-slate-400 flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> {r.readingTime}</span>
+                {selectedDayLog.readings.map((r, i) => {
+                  const status = getGlucoseStatusDetails(r.bloodSugar);
+                  const isTa = i18n.language.startsWith('ta');
+                  return (
+                    <div key={i} className="p-3.5 bg-slate-50 dark:bg-slate-850 border border-slate-100 dark:border-slate-800/60 rounded-2xl space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xxs uppercase tracking-wider font-extrabold bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded-lg text-slate-700 dark:text-slate-300">
+                          {t(`reading.types.${r.readingType}`, { defaultValue: r.readingType })}
+                        </span>
+                        <span className="text-xs text-slate-400 font-bold flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5" /> {r.readingTime}
+                        </span>
+                      </div>
+                      
+                      <div className="flex justify-between items-center">
+                        <div className="text-base font-extrabold text-slate-850 dark:text-white flex items-baseline gap-0.5">
+                          <span>{r.bloodSugar}</span>
+                          <span className="text-xxs font-normal text-slate-400">mg/dL</span>
+                        </div>
+                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border flex items-center gap-1 ${status.bg} ${status.color}`}>
+                          <span>{status.dot}</span>
+                          <span>{status.text}</span>
+                        </span>
+                      </div>
+
+                      {r.medicineTaken && (
+                        <span className="text-[10px] text-emerald-600 dark:text-emerald-450 block font-bold mt-1">
+                          💊 {r.medicineName || (isTa ? "பரிந்துரைக்கப்பட்ட மருந்து" : "Prescribed medicine")}
+                        </span>
+                      )}
+
+                      {r.symptoms && (
+                        <p className="text-[10px] text-rose-600 dark:text-rose-455 font-bold mt-1 border-t dark:border-slate-800/80 pt-1 flex items-start gap-1">
+                          <span>⚠️</span>
+                          <span>{isTa ? "அறிகுறிகள்:" : "Symptoms:"} {r.symptoms}</span>
+                        </p>
+                      )}
+
+                      {r.mealNotes && (
+                        <p className="text-xxs text-slate-550 dark:text-slate-400 italic mt-1 border-t dark:border-slate-800/80 pt-1">
+                          "{r.mealNotes}"
+                        </p>
+                      )}
+
+                      {r.remarks && (
+                        <p className="text-xxs text-slate-500 dark:text-slate-450 italic mt-1 border-t dark:border-slate-800/80 pt-1">
+                          {isTa ? "குறிப்புகள்:" : "Remarks:"} "{r.remarks}"
+                        </p>
+                      )}
                     </div>
-                    <div className="text-base font-extrabold text-slate-855 dark:text-white flex items-baseline gap-1">
-                      <span>{r.bloodSugar}</span>
-                      <span className="text-xxs font-medium text-slate-400 font-normal">mg/dL</span>
-                    </div>
-                    {r.medicineTaken && <span className="text-[10px] text-emerald-600 block">💊 {r.medicineName}</span>}
-                    {r.mealNotes && <p className="text-xxs text-slate-500 italic mt-1 border-t pt-1">"{r.mealNotes}"</p>}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
