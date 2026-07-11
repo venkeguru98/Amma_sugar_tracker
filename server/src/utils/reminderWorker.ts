@@ -101,10 +101,17 @@ export const checkAndSendReminders = async () => {
 
         const whatsAppBody = `🌸 Amma Sugar Tracker Reminder 🌸\n\nHello Amma! Please remember to check and record your scheduled blood sugar readings today.\nஅம்மா! இன்றைய இரத்த சர்க்கரை அளவுகளை பரிசோதித்து பதிவு செய்யுமாறு கேட்டுக்கொள்கிறோம்.`;
         const smsBody = `📢 Sugar Check Pending Alert 📢\n\nHi Caregiver, Amma's scheduled blood sugar readings are still pending. Please verify she records them.`;
+        const caregiverWhatsAppBody = `📢 Amma Sugar Tracker Alert 📢\n\nHi Caregiver, Amma's scheduled blood sugar readings are still pending. Please verify she records them.`;
 
-        if (enableWhatsapp && AmmaPhone) {
-          console.log(`[ReminderWorker] Triggering WhatsApp notification for user ${plan.userId} to ${AmmaPhone}`);
-          await sendWhatsApp(AmmaPhone, whatsAppBody);
+        if (enableWhatsapp) {
+          if (AmmaPhone) {
+            console.log(`[ReminderWorker] Triggering WhatsApp notification for user ${plan.userId} to ${AmmaPhone}`);
+            await sendWhatsApp(AmmaPhone, whatsAppBody);
+          }
+          if (CaregiverPhone) {
+            console.log(`[ReminderWorker] Triggering Caregiver WhatsApp notification for user ${plan.userId} to ${CaregiverPhone}`);
+            await sendWhatsApp(CaregiverPhone, caregiverWhatsAppBody);
+          }
         }
 
         if (enableSms && CaregiverPhone) {
