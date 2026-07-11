@@ -636,41 +636,6 @@ export const Dashboard: React.FC = () => {
           </div>
           </ErrorBoundary>
 
-          {/* 🟢 Today's Sugar Card */}
-          <ErrorBoundary name="Today's Sugar" isTamil={isTamil}>
-            {loading ? (
-              <CardSkeleton isTamil={isTamil} />
-            ) : hasData && summary?.latestReading ? (
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 text-center space-y-3">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">{isTamil ? 'இன்றைய சர்க்கரை அளவு' : "Today's Sugar"}</span>
-              
-              <div className="flex items-baseline justify-center gap-1.5">
-                <span className="text-6xl font-heading font-black text-slate-855 dark:text-white tracking-tight">
-                  {latestSugar}
-                </span>
-                <span className="text-slate-400 font-bold text-lg">mg/dL</span>
-              </div>
-
-              <div className="flex items-center justify-center gap-2">
-                <span className={`px-4 py-1.5 rounded-full border text-sm font-extrabold ${statusDetails.bg} ${statusDetails.color}`}>
-                  {statusDetails.dot} {statusDetails.text}
-                </span>
-              </div>
-
-              <div className="text-xxs font-bold text-slate-400 mt-1 flex items-center justify-center gap-1.5">
-                <Clock className="w-3.5 h-3.5" />
-                <span>{isTamil ? "பதிவு செய்யப்பட்ட நேரம்" : "Recorded at"} {summary.latestReading.readingTime}</span>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 shadow-sm border border-slate-100 dark:border-slate-800 text-center space-y-4">
-              <span className="text-lg font-bold text-slate-700 dark:text-slate-200 block">{isTamil ? "சர்க்கரை அளவை பதிவு செய்யவில்லை" : "No glucose logged today"}</span>
-              <p className="text-xs text-slate-400">{t('dashboard.noReadings')}</p>
-            </div>
-          )}
-          </ErrorBoundary>
-
-          
           {/* 🍛 Today's Healthy Food Plan */}
           <ErrorBoundary name="Food Plan" isTamil={isTamil}>
             {loading ? (
@@ -707,12 +672,95 @@ export const Dashboard: React.FC = () => {
             ) : null}
           </ErrorBoundary>
 
+          
+          {/* 🟢 Today's Sugar Card */}
+          <ErrorBoundary name="Today's Sugar" isTamil={isTamil}>
+            {loading ? (
+              <CardSkeleton isTamil={isTamil} />
+            ) : hasData && summary?.latestReading ? (
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-sm border border-slate-100 dark:border-slate-800 text-center space-y-3">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block">{isTamil ? 'இன்றைய சர்க்கரை அளவு' : "Today's Sugar"}</span>
+              
+              <div className="flex items-baseline justify-center gap-1.5">
+                <span className="text-6xl font-heading font-black text-slate-855 dark:text-white tracking-tight">
+                  {latestSugar}
+                </span>
+                <span className="text-slate-400 font-bold text-lg">mg/dL</span>
+              </div>
+
+              <div className="flex items-center justify-center gap-2">
+                <span className={`px-4 py-1.5 rounded-full border text-sm font-extrabold ${statusDetails.bg} ${statusDetails.color}`}>
+                  {statusDetails.dot} {statusDetails.text}
+                </span>
+              </div>
+
+              <div className="text-xxs font-bold text-slate-400 mt-1 flex items-center justify-center gap-1.5">
+                <Clock className="w-3.5 h-3.5" />
+                <span>{isTamil ? "பதிவு செய்யப்பட்ட நேரம்" : "Recorded at"} {summary.latestReading.readingTime}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 shadow-sm border border-slate-100 dark:border-slate-800 text-center space-y-4">
+              <span className="text-lg font-bold text-slate-700 dark:text-slate-200 block">{isTamil ? "சர்க்கரை அளவை பதிவு செய்யவில்லை" : "No glucose logged today"}</span>
+              <p className="text-xs text-slate-400">{t('dashboard.noReadings')}</p>
+            </div>
+          )}
+          </ErrorBoundary>
+
           {/* ❤️ How Are You Doing? (Amma View Only) */}
           <ErrorBoundary name="How Are You Doing" isTamil={isTamil}>
             {loading ? (
               <CardSkeleton isTamil={isTamil} />
-            ) : hasData ? (
+            ) : (!hasData || actualTodayAvg === null) ? (
             <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-850 space-y-4">
+              <h3 className="text-base font-heading font-extrabold text-slate-805 dark:text-white flex items-center gap-2">
+                <span>❤️</span>
+                <span>{isTamil ? "நலம் விசாரிக்கலாமா?" : "How Are You Doing?"}</span>
+              </h3>
+              
+              <div className="space-y-3 py-1">
+                <p className="text-xs font-bold text-slate-650 dark:text-slate-350 flex items-center gap-1.5">
+                  <span>🌱</span>
+                  <span>
+                    {isTamil 
+                      ? "இன்று சர்க்கரை அளவு எதுவும் பதிவு செய்யப்படவில்லை." 
+                      : "No sugar readings have been recorded today."}
+                  </span>
+                </p>
+                
+                <p className="text-xxs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                  {isTamil 
+                    ? "உங்கள் முதல் பதிவைச் சேர்த்தவுடன், நான் தானாகவே காண்பிப்பேன்:" 
+                    : "Once you add your first reading, I'll automatically show:"}
+                </p>
+                
+                <ul className="space-y-1.5 text-xs font-bold text-slate-705 dark:text-slate-300 pl-2">
+                  <li className="flex items-center gap-2">
+                    <span className="text-emerald-500">•</span>
+                    <span>{isTamil ? "இன்றைய சராசரி" : "Today's average"}</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-emerald-500">•</span>
+                    <span>{isTamil ? "நேற்றுடன் ஒப்பீடு" : "Comparison with yesterday"}</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="text-emerald-500">•</span>
+                    <span>{isTamil ? "கடந்த மாதத்துடன் ஒப்பீடு" : "Comparison with last month"}</span>
+                  </li>
+                </ul>
+                
+                <div className="pt-2 border-t border-slate-50 dark:border-slate-850/50 text-xxs font-bold text-emerald-600 dark:text-emerald-450 flex items-center gap-1.5">
+                  <span>💚</span>
+                  <span>
+                    {isTamil 
+                      ? "உங்கள் ஆரோக்கியத்தை தொடர்ந்து கவனித்துக் கொள்ளுங்கள்!" 
+                      : "Keep taking care of your health!"}
+                  </span>
+                </div>
+              </div>
+            </div>
+            ) : (
+              <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-850 space-y-4">
               <h3 className="text-base font-heading font-extrabold text-slate-800 dark:text-white flex items-center gap-2">
                 <span>❤️</span>
                 <span>{isTamil ? "நலம் விசாரிக்கலாமா?" : "How Are You Doing?"}</span>
@@ -852,7 +900,7 @@ export const Dashboard: React.FC = () => {
               </div>
 
             </div>
-            ) : null}
+            )}
           </ErrorBoundary>
 
           {/* 💊 Medicine Reminder */}
