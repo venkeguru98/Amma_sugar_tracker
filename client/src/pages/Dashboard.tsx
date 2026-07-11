@@ -196,12 +196,26 @@ export const Dashboard: React.FC = () => {
         const lastNotified = localStorage.getItem('last_notified_date');
         if (lastNotified !== todayStr) {
           if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-            new Notification(isTa ? "🔔 சர்க்கரை பரிசோதனைக்கான நேரம்" : "🔔 Time for your sugar test", {
-              body: isTa 
-                ? "அட்டவணைப்படுத்தப்பட்ட சர்க்கரை பரிசோதனை நிலுவையில் உள்ளது. தயவுசெய்து இப்போது பதிவு செய்யவும்." 
-                : "Please record today's scheduled sugar readings.",
-              icon: '/icon-512.jpg'
-            });
+            try {
+              new Notification(isTa ? "🔔 சர்க்கரை பரிசோதனைக்கான நேரம்" : "🔔 Time for your sugar test", {
+                body: isTa 
+                  ? "அட்டவணைப்படுத்தப்பட்ட சர்க்கரை பரிசோதனை நிலுவையில் உள்ளது. தயவுசெய்து இப்போது பதிவு செய்யவும்." 
+                  : "Please record today's scheduled sugar readings.",
+                icon: '/icon-512.jpg'
+              });
+            } catch (err) {
+              console.warn("[Notification] Standard constructor failed, using service worker fallback...", err);
+              if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.ready.then(reg => {
+                  reg.showNotification(isTa ? "🔔 சர்க்கரை பரிசோதனைக்கான நேரம்" : "🔔 Time for your sugar test", {
+                    body: isTa 
+                      ? "அட்டவணைப்படுத்தப்பட்ட சர்க்கரை பரிசோதனை நிலுவையில் உள்ளது. தயவுசெய்து இப்போது பதிவு செய்யவும்." 
+                      : "Please record today's scheduled sugar readings.",
+                    icon: '/icon-512.jpg'
+                  });
+                }).catch(swErr => console.error("[Notification] SW registration failed:", swErr));
+              }
+            }
             localStorage.setItem('last_notified_date', todayStr);
           }
         }
