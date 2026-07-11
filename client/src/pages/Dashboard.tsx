@@ -535,7 +535,7 @@ export const Dashboard: React.FC = () => {
                   </p>
 
                   <div className="space-y-2 text-xs font-semibold text-slate-700 dark:text-slate-205">
-                    {monProgress.checklist.map((item) => (
+                    {monProgress.checklist?.map((item) => (
                       <div key={item.type} className="flex items-center justify-between py-0.5">
                         <div className="flex items-center gap-2">
                           {item.checked ? (
@@ -1158,23 +1158,23 @@ export const Dashboard: React.FC = () => {
             </div>
 
             <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800/80 shadow-sm space-y-3">
-              <h4 className="font-bold text-xs text-slate-805 dark:text-white">Reading Categories Distribution</h4>
+              <h4 className="font-bold text-xs text-slate-850 dark:text-white">Reading Categories Distribution</h4>
               <div className="space-y-1.5 text-xxs">
                 <div className="flex justify-between items-center">
                   <span className="font-semibold text-emerald-600">🟢 Within Target ({targetMin}-{targetMax})</span>
-                  <span className="font-bold">{summary?.categories.green} logs</span>
+                  <span className="font-bold">{summary?.categories?.green || 0} logs</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="font-semibold text-amber-600">🟡 Slightly High ({targetMax + 1}-{targetMax + 40})</span>
-                  <span className="font-bold">{summary?.categories.yellow} logs</span>
+                  <span className="font-bold">{summary?.categories?.yellow || 0} logs</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="font-semibold text-rose-600">🟠 High (&gt;{targetMax + 40})</span>
-                  <span className="font-bold">{summary?.categories.orange} logs</span>
+                  <span className="font-bold">{summary?.categories?.orange || 0} logs</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="font-semibold text-rose-700">🔴 Critical (&lt;{targetMin})</span>
-                  <span className="font-bold">{summary?.categories.red} logs</span>
+                  <span className="font-bold">{summary?.categories?.red || 0} logs</span>
                 </div>
               </div>
             </div>
