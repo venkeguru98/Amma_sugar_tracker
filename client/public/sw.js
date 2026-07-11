@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sugar-tracker-cache-v2';
+const CACHE_NAME = 'sugar-tracker-cache-v3';
 const ASSETS = [
   '/',
   '/index.html',
@@ -34,20 +34,13 @@ self.addEventListener('fetch', (e) => {
     return;
   }
   
-  e.respondWith(
-    caches.match(e.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      
-      return fetch(e.request).then((networkResponse) => {
-        // Cache dynamic static assets (js, css, png, jpg, svg) from same origin
-        if (
-          networkResponse.status === 200 &&
-          (e.request.url.includes('/assets/') || 
-           e.request.url.endsWith('.js') || 
-           e.request.url.endsWith('.css'))
-        ) {
+  const isHtml = e.request.url === self.location.origin + '/' || e.request.url.endsWith('/index.html');
+  
+  if (isHtml) {
+    // Network-First strategy for HTML document to ensure immediate production updates
+    e.respondWith(
+      fetch(e.request).then((networkResponse) => {
+        if (networkResponse.status === 200) {
           const cacheCopy = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(e.request, cacheCopy);
@@ -55,9 +48,36 @@ self.addEventListener('fetch', (e) => {
         }
         return networkResponse;
       }).catch(() => {
-        // Fallback to offline index.html for SPA client-side routing
-        return caches.match('/index.html');
-      });
-    })
-  );
+        return caches.match('/index.html') || caches.match('/');
+      })
+    );
+  } else {
+    // Cache-First strategy for compiled static chunks (Vite hashed JS/CSS, images)
+    e.respondWith(
+      caches.match(e.request).then((cachedResponse) => {
+        if (cachedResponse) {
+          return cachedResponse;
+        }
+        
+        return fetch(e.request).then((networkResponse) => {
+          if (
+            networkResponse.status === 200 &&
+            (e.request.url.includes('/assets/') || 
+             e.request.url.endsWith('.js') || 
+             e.request.url.endsWith('.css') ||
+             e.request.url.endsWith('.jpg') ||
+             e.request.url.endsWith('.png'))
+          ) {
+            const cacheCopy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(e.request, cacheCopy);
+            });
+          }
+          return networkResponse;
+        }).catch(() => {
+          return caches.match('/index.html');
+        });
+      })
+    );
+  }
 });
