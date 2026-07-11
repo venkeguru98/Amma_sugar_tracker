@@ -12,9 +12,40 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Noto+Sans+Tamil:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script>
+      // Programmatic version check to bust aggressive mobile/PWA WebAPK caches
+      const APP_VERSION = 'v3';
+      const lastVersion = localStorage.getItem('app_version');
+      if (lastVersion !== APP_VERSION) {
+        console.log('New version detected! Purging aggressive mobile PWA caches...');
+        if ('caches' in window) {
+          caches.keys().then(names => {
+            return Promise.all(names.map(name => caches.delete(name)));
+          }).then(() => {
+            console.log('Caches successfully deleted!');
+            localStorage.setItem('app_version', APP_VERSION);
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.getRegistrations().then(registrations => {
+                for (let registration of registrations) {
+                  registration.unregister();
+                }
+                window.location.reload();
+              });
+            } else {
+              window.location.reload();
+            }
+          }).catch(err => {
+            console.error('Failed to clear caches:', err);
+            localStorage.setItem('app_version', APP_VERSION);
+            window.location.reload();
+          });
+        } else {
+          localStorage.setItem('app_version', APP_VERSION);
+        }
+      }
+
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
+          navigator.serviceWorker.register('/sw.js?v=3')
             .then(reg => {
               console.log('PWA Service Worker registered!', reg);
               // Trigger reload if a new service worker is installed
