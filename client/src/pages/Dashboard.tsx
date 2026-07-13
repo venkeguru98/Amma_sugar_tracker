@@ -97,12 +97,31 @@ const CardSkeleton: React.FC<{ isTamil?: boolean }> = ({ isTamil }) => (
 );
 
 // Persistent in-memory cache for SPA session
-let cachedDashboardData: any = null;
-let cachedDashboardTime = 0;
+let cachedDashboardData: any = (() => {
+  try {
+    const saved = localStorage.getItem('cached_dashboard_data');
+    return saved ? JSON.parse(saved) : null;
+  } catch {
+    return null;
+  }
+})();
+
+let cachedDashboardTime = (() => {
+  try {
+    const saved = localStorage.getItem('cached_dashboard_time');
+    return saved ? parseInt(saved, 10) : 0;
+  } catch {
+    return 0;
+  }
+})();
 
 export const invalidateDashboardCache = () => {
   cachedDashboardData = null;
   cachedDashboardTime = 0;
+  try {
+    localStorage.removeItem('cached_dashboard_data');
+    localStorage.removeItem('cached_dashboard_time');
+  } catch {}
 };
 
 export const Dashboard: React.FC = () => {
@@ -312,6 +331,12 @@ export const Dashboard: React.FC = () => {
       const data = res.data;
       cachedDashboardData = data;
       cachedDashboardTime = Date.now();
+      try {
+        localStorage.setItem('cached_dashboard_data', JSON.stringify(data));
+        localStorage.setItem('cached_dashboard_time', String(cachedDashboardTime));
+      } catch (e) {
+        console.warn("Failed to save dashboard cache to localStorage:", e);
+      }
 
       applyDashboardData(data);
       

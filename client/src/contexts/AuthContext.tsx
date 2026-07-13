@@ -31,7 +31,14 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 axios.defaults.baseURL = (import.meta as any).env?.VITE_API_URL || '';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<UserProfile | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(() => {
+    try {
+      const saved = localStorage.getItem('user_profile') || sessionStorage.getItem('user_profile');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
   const [token, setToken] = useState<string | null>(() => {
     return localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
   });
@@ -42,16 +49,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       
-      // If we already have user details, skip fetching profile
+      // If we already have user details, render the app instantly (loading=false)
+      // but fetch the fresh profile silently in the background
       if (user) {
         setLoading(false);
+        axios.get('/api/auth/profile')
+          .then((res) => {
+            const userData = res.data.user;
+            setUser(userData);
+            if (localStorage.getItem('auth_token')) {
+              localStorage.setItem('user_profile', JSON.stringify(userData));
+            } else {
+              sessionStorage.setItem('user_profile', JSON.stringify(userData));
+            }
+          })
+          .catch(() => {
+            logout();
+          });
         return;
       }
 
       setLoading(true);
       axios.get('/api/auth/profile')
         .then((res) => {
-          setUser(res.data.user);
+          const userData = res.data.user;
+          setUser(userData);
+          if (localStorage.getItem('auth_token')) {
+            localStorage.setItem('user_profile', JSON.stringify(userData));
+          } else {
+            sessionStorage.setItem('user_profile', JSON.stringify(userData));
+          }
         })
         .catch(() => {
           logout();
@@ -63,6 +90,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       delete axios.defaults.headers.common['Authorization'];
       localStorage.removeItem('auth_token');
       sessionStorage.removeItem('auth_token');
+      localStorage.removeItem('user_profile');
+      sessionStorage.removeItem('user_profile');
       setUser(null);
       setLoading(false);
     }
@@ -74,8 +103,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     if (rememberMe) {
       localStorage.setItem('auth_token', userToken);
+      localStorage.setItem('user_profile', JSON.stringify(userData));
     } else {
       sessionStorage.setItem('auth_token', userToken);
+      sessionStorage.setItem('user_profile', JSON.stringify(userData));
     }
     
     axios.defaults.headers.common['Authorization'] = `Bearer ${userToken}`;
@@ -88,6 +119,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { token: userToken, user: userData } = res.data;
     
     localStorage.setItem('auth_token', userToken);
+    localStorage.setItem('user_profile', JSON.stringify(userData));
     axios.defaults.headers.common['Authorization'] = `Bearer ${userToken}`;
     setUser(userData);
     setToken(userToken);
@@ -96,6 +128,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     localStorage.removeItem('auth_token');
     sessionStorage.removeItem('auth_token');
+    localStorage.removeItem('user_profile');
+    sessionStorage.removeItem('user_profile');
     delete axios.defaults.headers.common['Authorization'];
     setUser(null);
     setToken(null);
@@ -103,7 +137,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateUserProfile = async (data: Partial<UserProfile>) => {
     const res = await axios.put('/api/auth/profile', data);
-    setUser(res.data.user);
+    const userData = res.data.user;
+    setUser(userData);
+    if (localStorage.getItem('auth_token')) {
+      localStorage.setItem('user_profile', JSON.stringify(userData));
+    } else {
+      sessionStorage.setItem('user_profile', JSON.stringify(userData));
+    }
   };
 
   return (
